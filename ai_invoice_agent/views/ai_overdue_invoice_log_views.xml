@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_ai_overdue_invoice_log_list" model="ir.ui.view">
+        <field name="name">ai.overdue.invoice.log.list</field>
+        <field name="model">ai.overdue.invoice.log</field>
+        <field name="arch" type="xml">
+            <list string="AI Overdue Invoice Logs">
+                <field name="sent_date"/>
+                <field name="invoice_id"/>
+                <field name="partner_id"/>
+                <field name="reminder_level"/>
+                <field name="overdue_days"/>
+                <field name="email_to"/>
+                <field name="state"/>
+                <field name="message"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ai_overdue_invoice_log_form" model="ir.ui.view">
+        <field name="name">ai.overdue.invoice.log.form</field>
+        <field name="model">ai.overdue.invoice.log</field>
+        <field name="arch" type="xml">
+            <form string="AI Overdue Invoice Log">
+                <sheet>
+                    <group>
+                        <field name="invoice_id"/>
+                        <field name="partner_id"/>
+                        <field name="company_id"/>
+                        <field name="sent_date"/>
+                        <field name="reminder_level"/>
+                        <field name="overdue_days"/>
+                        <field name="email_to"/>
+                        <field name="subject"/>
+                        <field name="state"/>
+                        <field name="message"/>
+                    </group>
+                    <notebook>
+                        <page string="Email Body">
+                            <field name="body"/>
+                        </page>
+                        <page string="AI Prompt">
+                            <field name="ai_prompt"/>
+                        </page>
+                        <page string="AI Response">
+                            <field name="ai_response"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ai_overdue_invoice_log_search" model="ir.ui.view">
+        <field name="name">ai.overdue.invoice.log.search</field>
+        <field name="model">ai.overdue.invoice.log</field>
+        <field name="arch" type="xml">
+            <search string="AI Overdue Invoice Logs">
+                <field name="invoice_id"/>
+                <field name="partner_id"/>
+                <field name="state"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ai_overdue_invoice_log" model="ir.actions.act_window">
+        <field name="name">AI Overdue Invoice Logs</field>
+        <field name="res_model">ai.overdue.invoice.log</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_ai_invoice_agent_config" model="ir.actions.act_window">
+        <field name="name">AI Agent Config</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'module': 'ai_invoice_agent'}</field>
+    </record>
+
+
+    <menuitem id="menu_ai_invoice_agent_root" name="AI Invoice Agent" sequence="50"/>
+    <menuitem id="menu_ai_overdue_invoice_log" name="Reminder Logs" parent="menu_ai_invoice_agent_root"
+              action="action_ai_overdue_invoice_log" sequence="10"/>
+    <menuitem id="menu_ai_invoice_agent_configuration"
+              name="Configuration"
+              parent="menu_ai_invoice_agent_root"
+              groups="base.group_system"
+              sequence="20"/>
+    <menuitem id="menu_ai_invoice_agent_config"
+              name="AI Agent Config"
+              parent="menu_ai_invoice_agent_configuration"
+              action="action_ai_invoice_agent_config"
+              groups="base.group_system"
+              sequence="10"/>
+</odoo>

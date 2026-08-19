@@ -1,0 +1,17 @@
+<odoo>
+    <record id="view_partner_form_project_button" model="ir.ui.view">
+        <field name="name">res.partner.project.smart.button</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@class='oe_button_box']" position="inside">
+                <button type="object"
+                        name="action_view_projects"
+                        class="oe_stat_button"
+                        icon="fa-folder-open">
+                    <field name="project_count" widget="statinfo" string="Projects"/>
+                </button>
+            </xpath>
+        </field>
+    </record>
+</odoo>

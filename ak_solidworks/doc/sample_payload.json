@@ -1,0 +1,42 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "params": {
+    "name": "Industrial Dining Table",
+    "default_code": "TAB-IND-001",
+    "type": "assembly",
+    "uom": "Units",
+    "components": [
+      {
+        "name": "Oak Wood Top (72x36)",
+        "default_code": "TOP-OAK-72",
+        "type": "part",
+        "quantity": 1,
+        "uom": "Units"
+      },
+      {
+        "name": "Steel Leg Assembly",
+        "default_code": "LEG-STL-SUB",
+        "type": "assembly",
+        "quantity": 2,
+        "uom": "Units",
+        "components": [
+          {
+            "name": "Steel Tube 2x2",
+            "default_code": "ST-22-L30",
+            "type": "part",
+            "quantity": 2,
+            "uom": "Units"
+          },
+          {
+            "name": "Mounting Plate",
+            "default_code": "PLT-MNT-01",
+            "type": "part",
+            "quantity": 1,
+            "uom": "Units"
+          }
+        ]
+      }
+    ]
+  }
+}
