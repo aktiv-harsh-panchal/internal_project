@@ -3,37 +3,29 @@ pipeline {
 
     stages {
 
-        stage('Checkout') {
-            steps {
-                echo "Checking out development branch..."
-                checkout scm
-            }
-        }
-
         stage('Pylint Check') {
             steps {
-                echo "Running Pylint..."
+                echo "Running Pylint check..."
 
                 sh '''
                     python3 --version
                     pylint --version
-
                     pylint --fail-under=7.0 .
                 '''
             }
         }
 
-        stage('Build') {
+        stage('Prepare Build') {
             steps {
                 echo "Preparing build..."
 
                 sh '''
-                    echo "Build started..."
-
+                    rm -rf build
                     mkdir -p build
+
                     cp -r . build/
 
-                    echo "Build completed successfully."
+                    echo "Build prepared successfully."
                 '''
             }
         }
@@ -41,15 +33,11 @@ pipeline {
 
     post {
         success {
-            echo 'Pipeline completed successfully!'
+            echo "Pylint passed and build was prepared successfully."
         }
 
         failure {
-            echo 'Pipeline failed!'
-        }
-
-        always {
-            echo 'Pipeline finished.'
+            echo "Pipeline failed. Build was not prepared."
         }
     }
 }
