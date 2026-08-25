@@ -262,22 +262,24 @@ pipeline {
         // RESTART ODOO
         // =========================================================
         stage('Restart Odoo') {
-            steps {
-                echo "=========================================="
-                echo "RESTARTING ODOO"
-                echo "=========================================="
+	    when {
+		expression {
+		    return env.CHANGED_MODULES?.trim()
+		}
+	    }
 
-                sh '''
-                    set -e
+	    steps {
+		echo "=========================================="
+		echo "RESTARTING ODOO"
+		echo "=========================================="
 
-                    echo "Restarting Odoo service..."
-
-                    sudo systemctl restart odoo
-
-                    echo "Odoo service restarted."
-                '''
-            }
-        }
+		sh '''
+		    set -e
+		    echo "Restarting Odoo..."
+		    # Put the actual Odoo restart command here
+		'''
+	    }
+	}
 
 
         // =========================================================
