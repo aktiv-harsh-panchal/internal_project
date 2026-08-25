@@ -180,6 +180,7 @@ pipeline {
 		    echo "Jenkins workspace:"
 		    pwd
 
+		    echo ""
 		    echo "Target:"
 		    echo "$ODOO_CUSTOM_ADDONS"
 
@@ -187,17 +188,31 @@ pipeline {
 
 		    for MODULE in $CHANGED_MODULES
 		    do
+		        echo ""
 		        echo "Deploying module: $MODULE"
 
 		        rm -rf "$ODOO_CUSTOM_ADDONS/$MODULE"
 
 		        cp -r "$MODULE" "$ODOO_CUSTOM_ADDONS/"
-
-		        echo "Fixing permissions for $MODULE..."
-		        sudo chmod -R 777 "$ODOO_CUSTOM_ADDONS/$MODULE"
 		    done
 
-		    echo "All changed modules deployed."
+		    echo ""
+		    echo "Fixing ownership for entire internal_project..."
+
+		    sudo -n chown -R odoo:odoo "$ODOO_CUSTOM_ADDONS"
+
+		    echo ""
+		    echo "Fixing permissions for entire internal_project..."
+
+		    sudo -n chmod -R 777 "$ODOO_CUSTOM_ADDONS"
+
+		    echo ""
+		    echo "Final permissions:"
+		    ls -ld "$ODOO_CUSTOM_ADDONS"
+		    ls -ld "$ODOO_CUSTOM_ADDONS"/*
+
+		    echo ""
+		    echo "Custom addons deployed successfully."
 		'''
 	    }
 	}
