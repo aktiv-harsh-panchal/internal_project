@@ -65,7 +65,7 @@ pipeline {
         // IMPORTANT:
         // Replace this with your real database name.
 
-        ODOO_DB = 'YOUR_DATABASE_NAME'
+        ODOO_DB = 'test'
     }
 
 
