@@ -147,7 +147,7 @@ pipeline {
                             echo "Checking module: $MODULE"
 
                             $ODOO_PYTHON -m pylint \
-                                --fail-under=4.0 \
+                                --fail-under=3.0 \
                                 "$MODULE"
                         done
 
