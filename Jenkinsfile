@@ -288,95 +288,87 @@ pipeline {
 
         stage('Stop Odoo') {
 
-            when {
-                expression {
-                    return env.CHANGED_MODULES?.trim()
-                }
-            }
+	    when {
+		expression {
+		    return env.CHANGED_MODULES?.trim()
+		}
+	    }
 
-            steps {
+	    steps {
 
-                echo "=========================================="
-                echo "STOPPING ODOO"
-                echo "=========================================="
+		echo "=========================================="
+		echo "STOPPING ODOO"
+		echo "=========================================="
 
-                sh '''
-                    set -e
+		sh '''
+		    set -e
 
-                    echo "Odoo binary:"
-                    echo "$ODOO_BIN"
+		    echo "Checking port ${ODOO_PORT}..."
 
-                    echo ""
-                    echo "Searching for running Odoo process..."
+		    if ss -ltnp | grep -q ":${ODOO_PORT} "; then
 
-                    ODOO_PIDS=$(pgrep -u odoo -f "$ODOO_BIN" || true)
+		        echo ""
+		        echo "Port ${ODOO_PORT} is currently in use."
+		        echo "Finding process..."
 
-                    if [ -n "$ODOO_PIDS" ]; then
+		        sudo -n fuser -v "${ODOO_PORT}/tcp" || true
 
-                        echo "Running Odoo PID(s):"
-                        echo "$ODOO_PIDS"
+		        echo ""
+		        echo "Stopping process using port ${ODOO_PORT}..."
 
-                        echo ""
-                        echo "Sending TERM signal..."
+		        sudo -n fuser -k "${ODOO_PORT}/tcp" || true
 
-                        sudo -n -u odoo kill $ODOO_PIDS || true
+		        echo ""
+		        echo "Waiting for port to be released..."
 
-                        echo ""
-                        echo "Waiting for Odoo to stop..."
+		        for i in $(seq 1 20)
+		        do
 
-                        for i in $(seq 1 30)
-                        do
+		            if ss -ltnp | grep -q ":${ODOO_PORT} "; then
+		                echo "Port still in use... waiting ($i/20)"
+		                sleep 1
+		            else
+		                echo "Port ${ODOO_PORT} released."
+		                break
+		            fi
 
-                            if pgrep -u odoo -f "$ODOO_BIN" > /dev/null
-                            then
-                                echo "Odoo still running... waiting ($i/30)"
-                                sleep 1
-                            else
-                                echo "Odoo stopped successfully."
-                                break
-                            fi
+		        done
 
-                        done
+		    else
 
-                        if pgrep -u odoo -f "$ODOO_BIN" > /dev/null
-                        then
-                            echo ""
-                            echo "Odoo did not stop after 30 seconds."
-                            echo "Sending KILL signal..."
+		        echo ""
+		        echo "Port ${ODOO_PORT} is not in use."
 
-                            ODOO_PIDS=$(pgrep -u odoo -f "$ODOO_BIN" || true)
+		    fi
 
-                            if [ -n "$ODOO_PIDS" ]; then
-                                sudo -n -u odoo kill -9 $ODOO_PIDS || true
-                            fi
+		    echo ""
+		    echo "Final port check..."
 
-                            sleep 2
-                        fi
+		    if ss -ltnp | grep -q ":${ODOO_PORT} "; then
 
-                    else
+		        echo ""
+		        echo "ERROR: Port ${ODOO_PORT} is still in use."
+		        echo ""
 
-                        echo "No running Odoo process found."
+		        sudo -n fuser -v "${ODOO_PORT}/tcp" || true
 
-                    fi
+		        exit 1
 
-                    echo ""
-                    echo "Checking port ${ODOO_PORT}..."
+		    else
 
-                    if ss -ltnp | grep -q ":${ODOO_PORT} "
-                    then
-                        echo "WARNING: Port ${ODOO_PORT} is still in use."
-                        ss -ltnp | grep ":${ODOO_PORT} " || true
-                    else
-                        echo "Port ${ODOO_PORT} is free."
-                    fi
+		        echo ""
+		        echo "Port ${ODOO_PORT} is free."
+		        echo "Odoo can now be started."
 
-                    echo ""
-                    echo "=========================================="
-                    echo "Odoo stop operation completed."
-                    echo "=========================================="
-                '''
-            }
-        }
+		    fi
+
+		    echo ""
+		    echo "=========================================="
+		    echo "Odoo stopped successfully."
+		    echo "=========================================="
+		'''
+	    }
+	}
 
 
         // =========================================================
@@ -468,114 +460,122 @@ pipeline {
 
         stage('Start Odoo') {
 
-            when {
-                expression {
-                    return env.CHANGED_MODULES?.trim()
-                }
-            }
+	    when {
+		expression {
+		    return env.CHANGED_MODULES?.trim()
+		}
+	    }
 
-            steps {
+	    steps {
 
-                echo "=========================================="
-                echo "STARTING ODOO"
-                echo "=========================================="
+		echo "=========================================="
+		echo "STARTING ODOO"
+		echo "=========================================="
 
-                sh '''
-                    set -e
+		sh '''
+		    set -e
 
-                    echo "Python:"
-                    echo "$ODOO_PYTHON"
+		    echo "Python:"
+		    echo "$ODOO_PYTHON"
 
-                    echo ""
-                    echo "Odoo binary:"
-                    echo "$ODOO_BIN"
+		    echo ""
+		    echo "Odoo binary:"
+		    echo "$ODOO_BIN"
 
-                    echo ""
-                    echo "Odoo config:"
-                    echo "$ODOO_CONF"
+		    echo ""
+		    echo "Odoo config:"
+		    echo "$ODOO_CONF"
 
-                    test -f "$ODOO_BIN"
-                    test -f "$ODOO_CONF"
+		    test -f "$ODOO_BIN"
+		    test -f "$ODOO_CONF"
 
-                    echo ""
-                    echo "Checking if Odoo is already running..."
+		    echo ""
+		    echo "Checking port ${ODOO_PORT}..."
 
-                    EXISTING_PIDS=$(pgrep -u odoo -f "$ODOO_BIN" || true)
+		    if ss -ltnp | grep -q ":${ODOO_PORT} "; then
 
-                    if [ -n "$EXISTING_PIDS" ]; then
+		        echo ""
+		        echo "ERROR: Port ${ODOO_PORT} is already in use."
 
-                        echo "Odoo is already running."
-                        echo "PID(s):"
-                        echo "$EXISTING_PIDS"
+		        sudo -n fuser -v "${ODOO_PORT}/tcp" || true
 
-                    else
+		        exit 1
+		    fi
 
-                        echo "Odoo is not running."
-                        echo "Starting Odoo as odoo user..."
+		    echo ""
+		    echo "Starting Odoo..."
 
-                        sudo -n -u odoo sh -c "
-                            nohup '$ODOO_PYTHON' '$ODOO_BIN' \
-                                -c '$ODOO_CONF' \
-                                > /home/odoo/workspace/odoo/odoo_19/odoo.log 2>&1 \
-                                < /dev/null &
-                        "
+		    sudo -n -u odoo sh -c "
+		        nohup '$ODOO_PYTHON' '$ODOO_BIN' \
+		            -c '$ODOO_CONF' \
+		            > /home/odoo/workspace/odoo/odoo_19/odoo.log 2>&1 \
+		            < /dev/null &
+		    "
 
-                        echo ""
-                        echo "Waiting for Odoo to start..."
+		    echo ""
+		    echo "Odoo start command executed."
 
-                        sleep 5
+		    echo ""
+		    echo "Waiting for Odoo..."
 
-                    fi
+		    for i in $(seq 1 60)
+		    do
 
-                    echo ""
-                    echo "Checking Odoo process..."
+		        if ss -ltnp | grep -q ":${ODOO_PORT} "; then
 
-                    for i in $(seq 1 30)
-                    do
+		            echo ""
+		            echo "Odoo is listening on port ${ODOO_PORT}."
+		            break
 
-                        if pgrep -u odoo -f "$ODOO_BIN" > /dev/null
-                        then
+		        fi
 
-                            echo ""
-                            echo "Odoo process is running."
+		        echo "Waiting for Odoo... ($i/60)"
+		        sleep 1
 
-                            pgrep -u odoo -af "$ODOO_BIN"
+		    done
 
-                            break
+		    echo ""
+		    echo "Checking Odoo HTTP endpoint..."
 
-                        else
+		    for i in $(seq 1 30)
+		    do
 
-                            echo "Waiting for Odoo process... ($i/30)"
+		        HTTP_CODE=$(curl \
+		            -s \
+		            -o /dev/null \
+		            -w "%{http_code}" \
+		            --max-time 5 \
+		            "http://127.0.0.1:${ODOO_PORT}/web/login" || true)
 
-                            sleep 1
+		        echo "HTTP status: $HTTP_CODE"
 
-                        fi
+		        if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 500 ]; then
 
-                    done
+		            echo ""
+		            echo "=========================================="
+		            echo "Odoo started successfully."
+		            echo "=========================================="
 
-                    if ! pgrep -u odoo -f "$ODOO_BIN" > /dev/null
-                    then
+		            exit 0
+		        fi
 
-                        echo ""
-                        echo "ERROR: Odoo process did not start."
+		        sleep 1
 
-                        echo ""
-                        echo "Last 100 lines of Odoo log:"
-                        echo "------------------------------------------"
+		    done
 
-                        tail -100 \
-                            /home/odoo/workspace/odoo/odoo_19/odoo.log || true
+		    echo ""
+		    echo "ERROR: Odoo did not become available."
 
-                        exit 1
-                    fi
+		    echo ""
+		    echo "Last 100 lines of Odoo log:"
+		    echo "------------------------------------------"
 
-                    echo ""
-                    echo "=========================================="
-                    echo "Odoo started successfully."
-                    echo "=========================================="
-                '''
-            }
-        }
+		    tail -100 /home/odoo/workspace/odoo/odoo_19/odoo.log || true
+
+		    exit 1
+		'''
+	    }
+	}
 
 
         // =========================================================
