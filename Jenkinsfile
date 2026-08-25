@@ -274,13 +274,7 @@ pipeline {
         // =========================================================
         // RESTART ODOO
         // =========================================================
-        stage('Restart Odoo') {
-	    when {
-		expression {
-		    return env.CHANGED_MODULES?.trim()
-		}
-	    }
-
+	stage('Restart Odoo') {
 	    steps {
 		echo "=========================================="
 		echo "RESTARTING ODOO"
@@ -288,8 +282,30 @@ pipeline {
 
 		sh '''
 		    set -e
-		    echo "Restarting Odoo..."
-		    # Put the actual Odoo restart command here
+
+		    ODOO_PYTHON="/home/odoo/.virtualenvs/odoo19/bin/python3"
+		    ODOO_BIN="/home/odoo/workspace/odoo/odoo_19/odoo-bin"
+		    ODOO_CONF="/home/odoo/workspace/odoo/odoo_19/odoo_19.conf"
+
+		    echo "Stopping existing Odoo process..."
+
+		    pkill -f "$ODOO_BIN" || true
+
+		    sleep 5
+
+		    echo "Starting Odoo..."
+
+		    nohup "$ODOO_PYTHON" "$ODOO_BIN" \
+		        -c "$ODOO_CONF" \
+		        > /home/odoo/workspace/odoo/odoo_19/odoo.log 2>&1 &
+
+		    sleep 10
+
+		    echo "Checking Odoo process..."
+
+		    pgrep -af "$ODOO_BIN"
+
+		    echo "Odoo started successfully."
 		'''
 	    }
 	}
@@ -298,27 +314,24 @@ pipeline {
         // =========================================================
         // ODOO HEALTH CHECK
         // =========================================================
-        stage('Odoo Health Check') {
-            when {
-                expression {
-                    return env.CHANGED_MODULES?.trim()
-                }
-            }
+	stage('Odoo Health Check') {
+	    steps {
+		echo "=========================================="
+		echo "ODOO HEALTH CHECK"
+		echo "=========================================="
 
-            steps {
-                echo "=========================================="
-                echo "ODOO HEALTH CHECK"
-                echo "=========================================="
+		sh '''
+		    set -e
 
-                sh '''
-                    set -e
-                    echo "Checking Odoo service..."
-                    sudo systemctl is-active --quiet odoo
-                    echo "Odoo is running."
-                '''
-            }
-        }
-    }
+		    echo "Checking Odoo HTTP server..."
+
+		    curl -f http://127.0.0.1:8069/web/login
+
+		    echo ""
+		    echo "Odoo health check passed."
+		'''
+	    }
+	}
 
     // =============================================================
     // POST ACTIONS
