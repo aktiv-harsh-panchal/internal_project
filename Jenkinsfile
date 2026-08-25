@@ -2,14 +2,14 @@ pipeline {
     agent any
 
     options {
-        // Jenkins will NOT automatically checkout the repository.
+        // Jenkins will not automatically checkout the repository.
         // Checkout is handled manually in the Checkout stage.
         skipDefaultCheckout(true)
 
         // Keep only the last 10 builds.
         buildDiscarder(logRotator(numToKeepStr: '10'))
 
-        // Prevent multiple deployments from running simultaneously.
+        // Prevent two deployments from running at the same time.
         disableConcurrentBuilds()
     }
 
@@ -31,8 +31,6 @@ pipeline {
         // ============================================================
 
         ODOO_SERVER = '192.168.1.127'
-
-        ODOO_USER = 'odoo'
 
         ODOO_PORT = '8069'
 
@@ -66,36 +64,15 @@ pipeline {
 
         // IMPORTANT:
         // Replace this with your real database name.
+
         ODOO_DB = 'YOUR_DATABASE_NAME'
-
-
-        // ============================================================
-        // JENKINS -> ODOO SSH CREDENTIAL
-        // ============================================================
-
-        // This is ONLY for Jenkins -> Odoo server.
-        //
-        // It is NOT used for GitHub.
-        //
-        // Jenkins:
-        // Manage Jenkins
-        //   -> Credentials
-        //   -> Add Credentials
-        //
-        // Kind:
-        // SSH Username with private key
-        //
-        // ID:
-        // odoo-server-ssh
-
-        ODOO_SSH_CREDENTIALS = 'odoo-server-ssh'
     }
 
 
     stages {
 
         // ============================================================
-        // 1. CHECKOUT FROM GITHUB USING HTTPS
+        // 1. CHECKOUT
         // ============================================================
 
         stage('Checkout') {
@@ -110,12 +87,9 @@ pipeline {
                 deleteDir()
 
                 /*
-                 * GitHub is accessed through HTTPS.
+                 * GitHub is accessed using HTTPS.
                  *
-                 * NO sshagent is required here.
-                 *
-                 * credentialsId should contain your GitHub
-                 * username/PAT credentials.
+                 * No SSH Agent is required.
                  */
 
                 git(
@@ -145,6 +119,7 @@ pipeline {
                     git log -1 --pretty=%B
 
                     echo ""
+
                     echo "Remote:"
                     git remote -v
                 '''
@@ -153,7 +128,7 @@ pipeline {
 
 
         // ============================================================
-        // 2. DETECT CHANGED ODOO MODULES
+        // 2. DETECT CHANGED MODULES
         // ============================================================
 
         stage('Detect Changed Modules') {
@@ -167,8 +142,7 @@ pipeline {
                     echo '=========================================='
 
                     /*
-                     * Check whether this is the first commit available
-                     * in the Jenkins workspace.
+                     * Check whether HEAD~1 exists.
                      */
 
                     def hasPreviousCommit = sh(
@@ -178,16 +152,15 @@ pipeline {
                         returnStatus: true
                     ) == 0
 
+
                     if (!hasPreviousCommit) {
 
                         echo 'No previous commit available.'
-                        echo 'All top-level directories will be considered.'
 
                         env.CHANGED_MODULES = sh(
                             script: '''
                                 find . -mindepth 2 -maxdepth 2 -type f \\
-                                -name "__manifest__.py" \\
-                                -o -name "__openerp__.py" |
+                                \\( -name "__manifest__.py" -o -name "__openerp__.py" \\) |
                                 sed 's#^./##' |
                                 cut -d/ -f1 |
                                 sort -u |
@@ -205,8 +178,19 @@ pipeline {
                             returnStdout: true
                         ).trim()
 
-                        echo "Changed files:"
-                        echo "${changedFiles}"
+
+                        echo 'Changed files:'
+
+                        if (changedFiles) {
+                            echo changedFiles
+                        } else {
+                            echo 'No files changed.'
+                        }
+
+
+                        /*
+                         * Detect top-level Odoo modules.
+                         */
 
                         def modules = sh(
                             script: '''
@@ -218,13 +202,15 @@ pipeline {
                             returnStdout: true
                         ).trim()
 
+
                         env.CHANGED_MODULES = modules
                     }
 
 
                     if (env.CHANGED_MODULES?.trim()) {
 
-                        echo "Changed Odoo modules:"
+                        echo 'Changed Odoo modules:'
+
                         echo "${env.CHANGED_MODULES}"
 
                     } else {
@@ -232,6 +218,7 @@ pipeline {
                         env.CHANGED_MODULES = ''
 
                         echo 'No Odoo module changes detected.'
+
                         echo 'Deployment will be skipped.'
                     }
                 }
@@ -256,7 +243,9 @@ pipeline {
                         echo '=========================================='
 
                         echo "Changed modules: ${env.CHANGED_MODULES}"
+
                         echo 'Minimum required Pylint score: 4.0'
+
 
                         sh '''
                             python3 --version
@@ -266,11 +255,13 @@ pipeline {
                             pylint --fail-under=4.0 ${CHANGED_MODULES}
                         '''
 
+
                         echo 'Pylint check passed.'
 
                     } else {
 
                         echo 'No Odoo modules changed.'
+
                         echo 'Pylint check skipped.'
                     }
                 }
@@ -298,46 +289,48 @@ pipeline {
                 echo 'DEPLOYING CUSTOM ADDONS'
                 echo '=========================================='
 
+
                 /*
-                 * IMPORTANT:
+                 * No SSH.
                  *
-                 * GitHub does NOT use SSH here.
+                 * Jenkins and Odoo are assumed to be on the same
+                 * machine.
                  *
-                 * This sshagent is ONLY used because Jenkins needs
-                 * to connect to the remote Odoo server.
+                 * Copy the changed repository content directly
+                 * into the Odoo custom addons directory.
                  */
 
-                sshagent(credentials: ["${ODOO_SSH_CREDENTIALS}"]) {
+                sh '''
+                    set -e
 
-                    sh '''
-                        set -e
+                    echo "Jenkins workspace:"
+                    pwd
 
-                        echo "Testing SSH connection to Odoo server..."
+                    echo ""
 
-                        ssh \
-                            -o StrictHostKeyChecking=no \
-                            -p 22 \
-                            ${ODOO_USER}@${ODOO_SERVER} \
-                            "echo 'SSH connection successful'"
+                    echo "Odoo custom addons directory:"
+                    echo "${ODOO_CUSTOM_ADDONS}"
 
-                        echo "SSH connection successful."
+                    echo ""
 
-                        echo ""
-                        echo "Deploying custom addons..."
+                    echo "Checking target directory..."
 
-                        rsync -avz \
-                            --exclude='.git' \
-                            --exclude='.gitignore' \
-                            --exclude='Jenkinsfile' \
-                            --exclude='build' \
-                            --exclude='__pycache__' \
-                            custom_addons/ \
-                            ${ODOO_USER}@${ODOO_SERVER}:${ODOO_CUSTOM_ADDONS}/
+                    test -d "${ODOO_CUSTOM_ADDONS}"
 
-                        echo ""
-                        echo "Custom addons deployed successfully."
-                    '''
-                }
+                    echo "Target directory exists."
+
+                    echo ""
+
+                    echo "Deploying custom addons..."
+
+                    cp -r \
+                        ${CHANGED_MODULES} \
+                        "${ODOO_CUSTOM_ADDONS}/"
+
+                    echo ""
+
+                    echo "Custom addons deployed successfully."
+                '''
             }
         }
 
@@ -362,37 +355,34 @@ pipeline {
                 echo 'UPGRADING ODOO MODULES'
                 echo '=========================================='
 
+
                 /*
-                 * SSH is required here because the Odoo command
-                 * runs on the remote Odoo server.
+                 * Odoo is running on the same machine.
+                 *
+                 * Therefore no SSH is required.
                  */
 
-                sshagent(credentials: ["${ODOO_SSH_CREDENTIALS}"]) {
+                sh '''
+                    set -e
 
-                    sh '''
-                        set -e
+                    echo "Modules to upgrade:"
 
-                        echo "Modules to upgrade:"
-                        echo "${CHANGED_MODULES}"
+                    echo "${CHANGED_MODULES}"
 
-                        echo ""
+                    echo ""
 
-                        echo "Running Odoo module upgrade..."
+                    echo "Running Odoo module upgrade..."
 
-                        ssh \
-                            -o StrictHostKeyChecking=no \
-                            -p 22 \
-                            ${ODOO_USER}@${ODOO_SERVER} \
-                            "${ODOO_BIN} \
-                            -d ${ODOO_DB} \
-                            --addons-path=${ODOO_CUSTOM_ADDONS},${ODOO_ADDONS},${ODOO_CORE_ADDONS} \
-                            -u ${CHANGED_MODULES} \
-                            --stop-after-init"
+                    ${ODOO_BIN} \
+                        -d "${ODOO_DB}" \
+                        --addons-path="${ODOO_CUSTOM_ADDONS},${ODOO_ADDONS},${ODOO_CORE_ADDONS}" \
+                        -u "${CHANGED_MODULES}" \
+                        --stop-after-init
 
-                        echo ""
-                        echo "Odoo module upgrade completed."
-                    '''
-                }
+                    echo ""
+
+                    echo "Odoo module upgrade completed."
+                '''
             }
         }
 
@@ -417,23 +407,26 @@ pipeline {
                 echo 'RESTARTING ODOO'
                 echo '=========================================='
 
-                sshagent(credentials: ["${ODOO_SSH_CREDENTIALS}"]) {
 
-                    sh '''
-                        set -e
+                sh '''
+                    set -e
 
-                        echo "Restarting Odoo service..."
+                    echo "Restarting Odoo service..."
 
-                        ssh \
-                            -o StrictHostKeyChecking=no \
-                            -p 22 \
-                            ${ODOO_USER}@${ODOO_SERVER} \
-                            "sudo systemctl restart odoo"
+                    sudo systemctl restart odoo
 
-                        echo ""
-                        echo "Odoo restart command completed."
-                    '''
-                }
+                    echo ""
+
+                    echo "Odoo restart command completed."
+
+                    echo ""
+
+                    echo "Checking Odoo service status..."
+
+                    sudo systemctl is-active --quiet odoo
+
+                    echo "Odoo service is running."
+                '''
             }
         }
 
@@ -449,6 +442,7 @@ pipeline {
                 echo '=========================================='
                 echo 'ODOO HEALTH CHECK'
                 echo '=========================================='
+
 
                 script {
 
@@ -467,16 +461,18 @@ pipeline {
                                 --fail \
                                 --silent \
                                 --show-error \
-                                http://${ODOO_SERVER}:${ODOO_PORT}/web/database/selector \
+                                "http://${ODOO_SERVER}:${ODOO_PORT}/web/database/selector" \
                                 > /dev/null
 
                             echo ""
+
                             echo "Odoo is responding successfully."
                         '''
 
                     } else {
 
                         echo 'No deployment was performed.'
+
                         echo 'Odoo health check skipped.'
                     }
                 }
@@ -497,28 +493,41 @@ pipeline {
             echo '          PIPELINE SUCCESS'
             echo '=========================================='
 
+
             script {
 
                 if (env.CHANGED_MODULES?.trim()) {
 
                     echo "Changed modules: ${env.CHANGED_MODULES}"
+
                     echo 'Pylint: PASSED'
+
                     echo 'Deployment: SUCCESS'
+
                     echo 'Module upgrade: SUCCESS'
+
                     echo 'Odoo restart: SUCCESS'
+
                     echo 'Health check: SUCCESS'
 
                 } else {
 
                     echo 'No Odoo modules were changed.'
+
                     echo 'Pylint: SKIPPED'
+
                     echo 'Deployment: SKIPPED'
+
                     echo 'Module upgrade: SKIPPED'
+
                     echo 'Odoo restart: SKIPPED'
+
                     echo 'Health check: SKIPPED'
+
                     echo 'Build completed successfully.'
                 }
             }
+
 
             echo '=========================================='
         }
@@ -530,8 +539,11 @@ pipeline {
             echo '          PIPELINE FAILED'
             echo '=========================================='
 
+
             echo 'One of the CI/CD stages failed.'
+
             echo 'Deployment will not continue after a failed stage.'
+
 
             echo '=========================================='
         }
