@@ -1,4 +1,13 @@
+# Python
 __pycache__/
 *.py[cod]
-*.pyo
+
+# Odoo
 *.pyc
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
