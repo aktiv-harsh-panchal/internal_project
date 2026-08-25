@@ -286,26 +286,26 @@ pipeline {
         // ODOO HEALTH CHECK
         // =========================================================
         stage('Odoo Health Check') {
-	    when {
-		expression {
-		    return env.CHANGED_MODULES?.trim()
-		}
-	    }
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
 
-	    steps {
-		echo "=========================================="
-		echo "ODOO HEALTH CHECK"
-		echo "=========================================="
+            steps {
+                echo "=========================================="
+                echo "ODOO HEALTH CHECK"
+                echo "=========================================="
 
-		sh '''
-		    set -e
-		    echo "Checking Odoo service..."
-		    sudo systemctl is-active --quiet odoo
-		    echo "Odoo is running."
-		'''
-	    }
-	}
-
+                sh '''
+                    set -e
+                    echo "Checking Odoo service..."
+                    sudo systemctl is-active --quiet odoo
+                    echo "Odoo is running."
+                '''
+            }
+        }
+    }
 
     // =============================================================
     // POST ACTIONS
