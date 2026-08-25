@@ -1,104 +1,38 @@
 pipeline {
     agent any
 
-    options {
-        // Jenkins will not automatically checkout the repository.
-        // Checkout is handled manually in the Checkout stage.
-        skipDefaultCheckout(true)
-
-        // Keep only the last 10 builds.
-        buildDiscarder(logRotator(numToKeepStr: '10'))
-
-        // Prevent two deployments from running at the same time.
-        disableConcurrentBuilds()
-    }
-
     environment {
-
-        // ============================================================
-        // GITHUB - HTTPS
-        // ============================================================
-
-        GITHUB_CREDENTIALS = '550d0bdc-4a0c-432f-a86c-305bc922b13b'
-
-        GITHUB_URL = 'https://github.com/aktiv-harsh-panchal/internal_project.git'
-
-        GITHUB_BRANCH = 'development'
-
-
-        // ============================================================
-        // ODOO SERVER
-        // ============================================================
-
-        ODOO_SERVER = '192.168.1.127'
-
-        ODOO_PORT = '8069'
-
-
-        // ============================================================
-        // ODOO CUSTOM ADDONS
-        // ============================================================
+        ODOO_PYTHON = '/home/odoo/.virtualenvs/odoo19/bin/python3'
+        ODOO_BIN = '/home/odoo/workspace/odoo/odoo_19/odoo-bin'
 
         ODOO_CUSTOM_ADDONS = '/home/odoo/workspace/internal_project'
 
-
-        // ============================================================
-        // ODOO 19 ADDONS
-        // ============================================================
-
         ODOO_ADDONS = '/home/odoo/workspace/odoo/odoo_19/addons'
-
         ODOO_CORE_ADDONS = '/home/odoo/workspace/odoo/odoo_19/odoo/addons'
 
-
-        // ============================================================
-        // ODOO EXECUTABLE
-        // ============================================================
-
-        ODOO_BIN = '/home/odoo/workspace/odoo/odoo_19/odoo-bin'
-
-
-        // ============================================================
-        // ODOO DATABASE
-        // ============================================================
-
-        // IMPORTANT:
-        // Replace this with your real database name.
-
-        ODOO_DB = 'test'
+        ODOO_DATABASE = 'test'
     }
-
 
     stages {
 
-        // ============================================================
-        // 1. CHECKOUT
-        // ============================================================
-
+        // =========================================================
+        // CHECKOUT
+        // =========================================================
         stage('Checkout') {
-
             steps {
+                echo "=========================================="
+                echo "CHECKOUT DEVELOPMENT BRANCH"
+                echo "=========================================="
 
-                echo '=========================================='
-                echo 'CHECKOUT DEVELOPMENT BRANCH'
-                echo '=========================================='
-
-                // Clean Jenkins workspace.
                 deleteDir()
 
-                /*
-                 * GitHub is accessed using HTTPS.
-                 *
-                 * No SSH Agent is required.
-                 */
-
                 git(
-                    branch: "${GITHUB_BRANCH}",
-                    credentialsId: "${GITHUB_CREDENTIALS}",
-                    url: "${GITHUB_URL}"
+                    branch: 'development',
+                    credentialsId: '550d0bdc-4a0c-432f-a86c-305bc922b13b',
+                    url: 'https://github.com/aktiv-harsh-panchal/internal_project.git'
                 )
 
-                echo 'Repository checkout completed.'
+                echo "Repository checkout completed."
 
                 sh '''
                     echo "=========================================="
@@ -109,17 +43,14 @@ pipeline {
                     git branch --show-current
 
                     echo ""
-
                     echo "Current commit:"
                     git rev-parse HEAD
 
                     echo ""
-
                     echo "Commit message:"
                     git log -1 --pretty=%B
 
                     echo ""
-
                     echo "Remote:"
                     git remote -v
                 '''
@@ -127,178 +58,121 @@ pipeline {
         }
 
 
-        // ============================================================
-        // 2. DETECT CHANGED MODULES
-        // ============================================================
-
+        // =========================================================
+        // DETECT CHANGED MODULES
+        // =========================================================
         stage('Detect Changed Modules') {
-
             steps {
-
                 script {
 
-                    echo '=========================================='
-                    echo 'DETECTING CHANGED ODOO MODULES'
-                    echo '=========================================='
+                    echo "=========================================="
+                    echo "DETECTING CHANGED ODOO MODULES"
+                    echo "=========================================="
 
-                    /*
-                     * Check whether HEAD~1 exists.
-                     */
+                    def previousCommit = sh(
+                        script: 'git rev-parse HEAD~1',
+                        returnStdout: true
+                    ).trim()
 
-                    def hasPreviousCommit = sh(
-                        script: '''
-                            git rev-parse HEAD~1 >/dev/null 2>&1
-                        ''',
-                        returnStatus: true
-                    ) == 0
+                    def changedFiles = sh(
+                        script: "git diff --name-only ${previousCommit} HEAD",
+                        returnStdout: true
+                    ).trim()
 
+                    echo "Changed files:"
+                    echo changedFiles
 
-                    if (!hasPreviousCommit) {
+                    def modules = sh(
+                        script: """
+                            git diff --name-only ${previousCommit} HEAD |
+                            awk -F/ 'NF >= 2 {print \$1}' |
+                            sort -u |
+                            tr '\\n' ' '
+                        """,
+                        returnStdout: true
+                    ).trim()
 
-                        echo 'No previous commit available.'
-
-                        env.CHANGED_MODULES = sh(
-                            script: '''
-                                find . -mindepth 2 -maxdepth 2 -type f \\
-                                \\( -name "__manifest__.py" -o -name "__openerp__.py" \\) |
-                                sed 's#^./##' |
-                                cut -d/ -f1 |
-                                sort -u |
-                                tr '\\n' ' '
-                            ''',
-                            returnStdout: true
-                        ).trim()
-
+                    if (!modules) {
+                        echo "No Odoo modules changed."
+                        env.CHANGED_MODULES = ''
                     } else {
-
-                        def changedFiles = sh(
-                            script: '''
-                                git diff --name-only HEAD~1 HEAD
-                            ''',
-                            returnStdout: true
-                        ).trim()
-
-
-                        echo 'Changed files:'
-
-                        if (changedFiles) {
-                            echo changedFiles
-                        } else {
-                            echo 'No files changed.'
-                        }
-
-
-                        /*
-                         * Detect top-level Odoo modules.
-                         */
-
-                        def modules = sh(
-                            script: '''
-                                git diff --name-only HEAD~1 HEAD |
-                                awk -F/ 'NF >= 2 {print $1}' |
-                                sort -u |
-                                tr '\\n' ' '
-                            ''',
-                            returnStdout: true
-                        ).trim()
-
-
                         env.CHANGED_MODULES = modules
                     }
 
-
-                    if (env.CHANGED_MODULES?.trim()) {
-
-                        echo 'Changed Odoo modules:'
-
-                        echo "${env.CHANGED_MODULES}"
-
-                    } else {
-
-                        env.CHANGED_MODULES = ''
-
-                        echo 'No Odoo module changes detected.'
-
-                        echo 'Deployment will be skipped.'
-                    }
+                    echo "Changed Odoo modules:"
+                    echo env.CHANGED_MODULES
                 }
             }
         }
 
 
-        // ============================================================
-        // 3. PYLINT
-        // ============================================================
-
+        // =========================================================
+        // PYLINT
+        // =========================================================
         stage('Pylint Check') {
-
-            steps {
-
-                script {
-
-                    if (env.CHANGED_MODULES?.trim()) {
-
-                        echo '=========================================='
-                        echo 'PYLINT CHECK'
-                        echo '=========================================='
-
-                        echo "Changed modules: ${env.CHANGED_MODULES}"
-
-                        echo 'Minimum required Pylint score: 4.0'
-
-
-                        sh '''
-                            python3 --version
-
-                            pylint --version
-
-                            pylint --fail-under=4.0 ${CHANGED_MODULES}
-                        '''
-
-
-                        echo 'Pylint check passed.'
-
-                    } else {
-
-                        echo 'No Odoo modules changed.'
-
-                        echo 'Pylint check skipped.'
-                    }
-                }
-            }
-        }
-
-
-        // ============================================================
-        // 4. DEPLOY CUSTOM ADDONS
-        // ============================================================
-
-        stage('Deploy Custom Addons') {
-
             when {
-
                 expression {
-
                     return env.CHANGED_MODULES?.trim()
                 }
             }
 
             steps {
+                script {
 
-                echo '=========================================='
-                echo 'DEPLOYING CUSTOM ADDONS'
-                echo '=========================================='
+                    echo "=========================================="
+                    echo "PYLINT CHECK"
+                    echo "=========================================="
+
+                    echo "Changed modules: ${env.CHANGED_MODULES}"
+                    echo "Minimum required Pylint score: 4.0"
+
+                    sh '''
+                        set -e
+
+                        echo "Python:"
+                        $ODOO_PYTHON --version
+
+                        echo "Python executable:"
+                        $ODOO_PYTHON -c "import sys; print(sys.executable)"
+
+                        echo "Pylint:"
+                        $ODOO_PYTHON -m pylint --version
+
+                        echo ""
+                        echo "Running Pylint..."
+
+                        for MODULE in $CHANGED_MODULES
+                        do
+                            echo ""
+                            echo "Checking module: $MODULE"
+
+                            $ODOO_PYTHON -m pylint \
+                                --fail-under=4.0 \
+                                "$MODULE"
+                        done
+
+                        echo ""
+                        echo "Pylint check passed."
+                    '''
+                }
+            }
+        }
 
 
-                /*
-                 * No SSH.
-                 *
-                 * Jenkins and Odoo are assumed to be on the same
-                 * machine.
-                 *
-                 * Copy the changed repository content directly
-                 * into the Odoo custom addons directory.
-                 */
+        // =========================================================
+        // DEPLOY CUSTOM ADDONS
+        // =========================================================
+        stage('Deploy Custom Addons') {
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
+
+            steps {
+                echo "=========================================="
+                echo "DEPLOYING CUSTOM ADDONS"
+                echo "=========================================="
 
                 sh '''
                     set -e
@@ -307,106 +181,92 @@ pipeline {
                     pwd
 
                     echo ""
-
                     echo "Odoo custom addons directory:"
-                    echo "${ODOO_CUSTOM_ADDONS}"
+                    echo "$ODOO_CUSTOM_ADDONS"
 
                     echo ""
-
                     echo "Checking target directory..."
 
-                    test -d "${ODOO_CUSTOM_ADDONS}"
+                    test -d "$ODOO_CUSTOM_ADDONS"
 
                     echo "Target directory exists."
 
                     echo ""
+                    echo "Deploying changed modules..."
 
-                    echo "Deploying custom addons..."
+                    for MODULE in $CHANGED_MODULES
+                    do
+                        echo "Deploying module: $MODULE"
 
-                    cp -r \
-                        ${CHANGED_MODULES} \
-                        "${ODOO_CUSTOM_ADDONS}/"
+                        rm -rf "$ODOO_CUSTOM_ADDONS/$MODULE"
+
+                        cp -r "$MODULE" "$ODOO_CUSTOM_ADDONS/"
+                    done
 
                     echo ""
-
                     echo "Custom addons deployed successfully."
                 '''
             }
         }
 
 
-        // ============================================================
-        // 5. UPGRADE ODOO MODULES
-        // ============================================================
-
+        // =========================================================
+        // UPGRADE ODOO MODULES
+        // =========================================================
         stage('Upgrade Odoo Modules') {
-
             when {
-
                 expression {
-
                     return env.CHANGED_MODULES?.trim()
                 }
             }
 
             steps {
-
-                echo '=========================================='
-                echo 'UPGRADING ODOO MODULES'
-                echo '=========================================='
-
-
-                /*
-                 * Odoo is running on the same machine.
-                 *
-                 * Therefore no SSH is required.
-                 */
+                echo "=========================================="
+                echo "UPGRADING ODOO MODULES"
+                echo "=========================================="
 
                 sh '''
                     set -e
 
-                    echo "Modules to upgrade:"
-
-                    echo "${CHANGED_MODULES}"
+                    echo "Python:"
+                    $ODOO_PYTHON --version
 
                     echo ""
+                    echo "Python executable:"
+                    $ODOO_PYTHON -c "import sys; print(sys.executable)"
 
+                    echo ""
+                    echo "Checking passlib:"
+                    $ODOO_PYTHON -c "import passlib; print('passlib:', passlib.__version__)"
+
+                    echo ""
+                    echo "Modules to upgrade:"
+                    echo "$CHANGED_MODULES"
+
+                    echo ""
                     echo "Running Odoo module upgrade..."
 
-                    ${ODOO_BIN} \
-                        -d "${ODOO_DB}" \
-                        --addons-path="${ODOO_CUSTOM_ADDONS},${ODOO_ADDONS},${ODOO_CORE_ADDONS}" \
-                        -u "${CHANGED_MODULES}" \
+                    $ODOO_PYTHON "$ODOO_BIN" \
+                        -d "$ODOO_DATABASE" \
+                        --addons-path="$ODOO_CUSTOM_ADDONS,$ODOO_ADDONS,$ODOO_CORE_ADDONS" \
+                        -u "$CHANGED_MODULES" \
                         --stop-after-init
 
                     echo ""
-
-                    echo "Odoo module upgrade completed."
+                    echo "Odoo module upgrade completed successfully."
                 '''
             }
         }
 
 
-        // ============================================================
-        // 6. RESTART ODOO
-        // ============================================================
-
+        // =========================================================
+        // RESTART ODOO
+        // =========================================================
         stage('Restart Odoo') {
-
-            when {
-
-                expression {
-
-                    return env.CHANGED_MODULES?.trim()
-                }
-            }
-
             steps {
-
-                echo '=========================================='
-                echo 'RESTARTING ODOO'
-                echo '=========================================='
-
+                echo "=========================================="
+                echo "RESTARTING ODOO"
+                echo "=========================================="
 
                 sh '''
                     set -e
@@ -415,137 +275,65 @@ pipeline {
 
                     sudo systemctl restart odoo
 
-                    echo ""
-
-                    echo "Odoo restart command completed."
-
-                    echo ""
-
-                    echo "Checking Odoo service status..."
-
-                    sudo systemctl is-active --quiet odoo
-
-                    echo "Odoo service is running."
+                    echo "Odoo service restarted."
                 '''
             }
         }
 
 
-        // ============================================================
-        // 7. HEALTH CHECK
-        // ============================================================
-
+        // =========================================================
+        // ODOO HEALTH CHECK
+        // =========================================================
         stage('Odoo Health Check') {
-
             steps {
+                echo "=========================================="
+                echo "ODOO HEALTH CHECK"
+                echo "=========================================="
 
-                echo '=========================================='
-                echo 'ODOO HEALTH CHECK'
-                echo '=========================================='
+                sh '''
+                    set -e
 
+                    echo "Checking Odoo service..."
 
-                script {
+                    sudo systemctl is-active --quiet odoo
 
-                    if (env.CHANGED_MODULES?.trim()) {
+                    echo "Odoo service is running."
 
-                        sh '''
-                            set -e
-
-                            echo "Waiting for Odoo to start..."
-
-                            sleep 5
-
-                            echo "Checking Odoo HTTP service..."
-
-                            curl \
-                                --fail \
-                                --silent \
-                                --show-error \
-                                "http://${ODOO_SERVER}:${ODOO_PORT}/web/database/selector" \
-                                > /dev/null
-
-                            echo ""
-
-                            echo "Odoo is responding successfully."
-                        '''
-
-                    } else {
-
-                        echo 'No deployment was performed.'
-
-                        echo 'Odoo health check skipped.'
-                    }
-                }
+                    echo ""
+                    echo "Odoo health check passed."
+                '''
             }
         }
     }
 
 
-    // ================================================================
+    // =============================================================
     // POST ACTIONS
-    // ================================================================
-
+    // =============================================================
     post {
 
         success {
+            echo "=========================================="
+            echo "          PIPELINE SUCCESS"
+            echo "=========================================="
 
-            echo '=========================================='
-            echo '          PIPELINE SUCCESS'
-            echo '=========================================='
-
-
-            script {
-
-                if (env.CHANGED_MODULES?.trim()) {
-
-                    echo "Changed modules: ${env.CHANGED_MODULES}"
-
-                    echo 'Pylint: PASSED'
-
-                    echo 'Deployment: SUCCESS'
-
-                    echo 'Module upgrade: SUCCESS'
-
-                    echo 'Odoo restart: SUCCESS'
-
-                    echo 'Health check: SUCCESS'
-
-                } else {
-
-                    echo 'No Odoo modules were changed.'
-
-                    echo 'Pylint: SKIPPED'
-
-                    echo 'Deployment: SKIPPED'
-
-                    echo 'Module upgrade: SKIPPED'
-
-                    echo 'Odoo restart: SKIPPED'
-
-                    echo 'Health check: SKIPPED'
-
-                    echo 'Build completed successfully.'
-                }
-            }
-
-
-            echo '=========================================='
+            echo "Deployment completed successfully."
+            echo "Changed modules: ${env.CHANGED_MODULES}"
         }
 
-
         failure {
+            echo "=========================================="
+            echo "          PIPELINE FAILED"
+            echo "=========================================="
 
-            echo '=========================================='
-            echo '          PIPELINE FAILED'
-            echo '=========================================='
+            echo "One of the CI/CD stages failed."
+            echo "Deployment did not complete successfully."
+        }
 
-
-            echo 'One of the CI/CD stages failed.'
-
-            echo 'Deployment will not continue after a failed stage.'
-
-
-            echo '=========================================='
+        always {
+            echo "=========================================="
+            echo "          PIPELINE FINISHED"
+            echo "=========================================="
         }
     }
 }
