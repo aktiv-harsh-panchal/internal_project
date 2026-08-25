@@ -12,7 +12,6 @@ pipeline {
         ODOO_CORE_ADDONS = '/home/odoo/workspace/odoo/odoo_19/odoo/addons'
 
         ODOO_DATABASE = 'test'
-
         ODOO_PORT = '8069'
     }
 
@@ -23,6 +22,7 @@ pipeline {
         // =========================================================
         stage('Checkout') {
             steps {
+
                 echo "=========================================="
                 echo "CHECKOUT DEVELOPMENT BRANCH"
                 echo "=========================================="
@@ -66,6 +66,7 @@ pipeline {
         // =========================================================
         stage('Detect Changed Modules') {
             steps {
+
                 script {
 
                     echo "=========================================="
@@ -82,8 +83,15 @@ pipeline {
                         returnStdout: true
                     ).trim()
 
+                    echo ""
                     echo "Changed files:"
-                    echo changedFiles
+                    echo "------------------------------------------"
+
+                    if (changedFiles) {
+                        echo changedFiles
+                    } else {
+                        echo "No files changed."
+                    }
 
                     def modules = sh(
                         script: """
@@ -96,14 +104,21 @@ pipeline {
                     ).trim()
 
                     if (!modules) {
-                        echo "No Odoo modules changed."
-                        env.CHANGED_MODULES = ''
-                    } else {
-                        env.CHANGED_MODULES = modules
-                    }
 
-                    echo "Changed Odoo modules:"
-                    echo env.CHANGED_MODULES
+                        env.CHANGED_MODULES = ''
+
+                        echo ""
+                        echo "No Odoo modules changed."
+
+                    } else {
+
+                        env.CHANGED_MODULES = modules
+
+                        echo ""
+                        echo "Changed Odoo modules:"
+                        echo "------------------------------------------"
+                        echo env.CHANGED_MODULES
+                    }
                 }
             }
         }
@@ -113,6 +128,7 @@ pipeline {
         // PYLINT
         // =========================================================
         stage('Pylint Check') {
+
             when {
                 expression {
                     return env.CHANGED_MODULES?.trim()
@@ -120,6 +136,7 @@ pipeline {
             }
 
             steps {
+
                 script {
 
                     echo "=========================================="
@@ -132,30 +149,39 @@ pipeline {
                     sh '''
                         set -e
 
+                        echo ""
                         echo "Python:"
                         "$ODOO_PYTHON" --version
 
+                        echo ""
                         echo "Python executable:"
-                        "$ODOO_PYTHON" -c "import sys; print(sys.executable)"
+                        "$ODOO_PYTHON" -c \
+                            "import sys; print(sys.executable)"
 
+                        echo ""
                         echo "Pylint:"
                         "$ODOO_PYTHON" -m pylint --version
 
                         echo ""
                         echo "Running Pylint..."
+                        echo "------------------------------------------"
 
                         for MODULE in $CHANGED_MODULES
                         do
+
                             echo ""
                             echo "Checking module: $MODULE"
 
                             "$ODOO_PYTHON" -m pylint \
                                 --fail-under=3.0 \
                                 "$MODULE"
+
                         done
 
                         echo ""
+                        echo "=========================================="
                         echo "Pylint check passed."
+                        echo "=========================================="
                     '''
                 }
             }
@@ -166,6 +192,7 @@ pipeline {
         // DEPLOY CUSTOM ADDONS
         // =========================================================
         stage('Deploy Custom Addons') {
+
             when {
                 expression {
                     return env.CHANGED_MODULES?.trim()
@@ -173,6 +200,7 @@ pipeline {
             }
 
             steps {
+
                 echo "=========================================="
                 echo "DEPLOYING CUSTOM ADDONS"
                 echo "=========================================="
@@ -184,43 +212,64 @@ pipeline {
                     pwd
 
                     echo ""
-                    echo "Target:"
+                    echo "Target directory:"
                     echo "$ODOO_CUSTOM_ADDONS"
 
                     test -d "$ODOO_CUSTOM_ADDONS"
 
+                    echo ""
+                    echo "Modules to deploy:"
+                    echo "$CHANGED_MODULES"
+
                     for MODULE in $CHANGED_MODULES
                     do
+
                         echo ""
                         echo "Deploying module: $MODULE"
 
+                        if [ ! -d "$MODULE" ]; then
+                            echo "ERROR: Module directory does not exist:"
+                            echo "$MODULE"
+                            exit 1
+                        fi
+
+                        echo "Removing old module..."
+
                         rm -rf "$ODOO_CUSTOM_ADDONS/$MODULE"
 
+                        echo "Copying new module..."
+
                         cp -r "$MODULE" "$ODOO_CUSTOM_ADDONS/"
+
                     done
 
                     echo ""
-                    echo "Fixing ownership for entire internal_project..."
+                    echo "Fixing ownership..."
 
                     sudo -n chown -R odoo:odoo "$ODOO_CUSTOM_ADDONS"
 
                     echo ""
-                    echo "Fixing permissions for entire internal_project..."
+                    echo "Fixing permissions..."
 
                     sudo -n chmod -R 777 "$ODOO_CUSTOM_ADDONS"
 
                     echo ""
                     echo "Final permissions:"
+                    echo "------------------------------------------"
 
                     ls -ld "$ODOO_CUSTOM_ADDONS"
 
                     for MODULE in $CHANGED_MODULES
                     do
+                        echo ""
+                        echo "Module: $MODULE"
                         ls -ld "$ODOO_CUSTOM_ADDONS/$MODULE"
                     done
 
                     echo ""
+                    echo "=========================================="
                     echo "Custom addons deployed successfully."
+                    echo "=========================================="
                 '''
             }
         }
@@ -230,6 +279,7 @@ pipeline {
         // UPGRADE ODOO MODULES
         // =========================================================
         stage('Upgrade Odoo Modules') {
+
             when {
                 expression {
                     return env.CHANGED_MODULES?.trim()
@@ -237,6 +287,7 @@ pipeline {
             }
 
             steps {
+
                 echo "=========================================="
                 echo "UPGRADING ODOO MODULES"
                 echo "=========================================="
@@ -261,18 +312,25 @@ pipeline {
                     echo "Odoo config:"
                     echo "$ODOO_CONF"
 
+                    echo ""
+                    echo "Odoo database:"
+                    echo "$ODOO_DATABASE"
+
                     test -f "$ODOO_CONF"
                     test -f "$ODOO_BIN"
 
                     echo ""
                     echo "Modules to upgrade:"
+                    echo "------------------------------------------"
                     echo "$CHANGED_MODULES"
 
                     # Convert:
-                    # module1 module2
+                    #
+                    # ai_invoice_agent sale_project_management
                     #
                     # into:
-                    # module1,module2
+                    #
+                    # ai_invoice_agent,sale_project_management
 
                     MODULES_TO_UPGRADE=$(echo "$CHANGED_MODULES" | tr ' ' ',')
 
@@ -282,73 +340,125 @@ pipeline {
 
                     echo ""
                     echo "Running Odoo module upgrade as odoo user..."
+                    echo "------------------------------------------"
 
-                    sudo -n -u odoo "$ODOO_PYTHON" "$ODOO_BIN" \
+                    sudo -n -u odoo \
+                        "$ODOO_PYTHON" \
+                        "$ODOO_BIN" \
                         -c "$ODOO_CONF" \
                         -d "$ODOO_DATABASE" \
                         -u "$MODULES_TO_UPGRADE" \
                         --stop-after-init
 
                     echo ""
+                    echo "=========================================="
                     echo "Odoo module upgrade completed successfully."
+                    echo "=========================================="
                 '''
             }
         }
 
 
         // =========================================================
-        // RESTART ODOO
+        // ODOO SERVER CHECK
+        //
+        // IMPORTANT:
+        // Odoo is manually running on this server.
+        // Jenkins must NOT start or restart Odoo.
         // =========================================================
         stage('Odoo Server Check') {
-	    steps {
-		echo "=========================================="
-		echo "ODOO SERVER CHECK"
-		echo "=========================================="
 
-		sh '''
-		    set -e
+            steps {
 
-		    echo "Checking Odoo HTTP server on port 8069..."
+                echo "=========================================="
+                echo "ODOO SERVER CHECK"
+                echo "=========================================="
 
-		    if curl -fsS --max-time 10 http://127.0.0.1:8069/web/login > /dev/null; then
-		        echo ""
-		        echo "Odoo server is already running."
-		        echo "No restart required because Odoo is running manually."
-		    else
-		        echo ""
-		        echo "ERROR: Odoo server is not responding on port 8069."
-		        echo ""
-		        echo "Check your manually running Odoo server."
-		        exit 1
-		    fi
-		'''
-	    }
-	}
+                sh '''
+                    set -e
+
+                    echo "Odoo is expected to be running manually."
+
+                    echo ""
+                    echo "Checking port:"
+                    echo "$ODOO_PORT"
+
+                    echo ""
+                    echo "Checking Odoo HTTP server..."
+
+                    if curl -fsS \
+                        --max-time 10 \
+                        "http://127.0.0.1:${ODOO_PORT}/web/login" \
+                        > /dev/null
+                    then
+
+                        echo ""
+                        echo "Odoo server is running."
+                        echo "Port ${ODOO_PORT} is responding."
+                        echo "No restart required."
+
+                    else
+
+                        echo ""
+                        echo "ERROR: Odoo server is NOT responding."
+                        echo ""
+                        echo "Expected:"
+                        echo "http://127.0.0.1:${ODOO_PORT}/web/login"
+                        echo ""
+                        echo "Please start Odoo manually."
+
+                        exit 1
+                    fi
+                '''
+            }
+        }
 
 
         // =========================================================
         // ODOO HEALTH CHECK
         // =========================================================
         stage('Odoo Health Check') {
-	    steps {
-		echo "=========================================="
-		echo "ODOO HEALTH CHECK"
-		echo "=========================================="
 
-		sh '''
-		    set -e
+            steps {
 
-		    echo "Checking Odoo HTTP server..."
+                echo "=========================================="
+                echo "ODOO HEALTH CHECK"
+                echo "=========================================="
 
-		    curl -fsS --max-time 10 \
-		        http://127.0.0.1:8069/web/login \
-		        > /dev/null
+                sh '''
+                    set -e
 
-		    echo ""
-		    echo "Odoo health check passed."
-		'''
-	    }
-	}
+                    echo "Checking Odoo health..."
+
+                    HTTP_CODE=$(curl \
+                        -s \
+                        -o /dev/null \
+                        -w "%{http_code}" \
+                        --max-time 10 \
+                        "http://127.0.0.1:${ODOO_PORT}/web/login")
+
+                    echo ""
+                    echo "HTTP status: $HTTP_CODE"
+
+                    if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 500 ]; then
+
+                        echo ""
+                        echo "=========================================="
+                        echo "Odoo health check passed."
+                        echo "=========================================="
+
+                    else
+
+                        echo ""
+                        echo "ERROR: Odoo health check failed."
+                        echo "HTTP status: $HTTP_CODE"
+
+                        exit 1
+                    fi
+                '''
+            }
+        }
+    }
 
 
     // =============================================================
@@ -357,24 +467,31 @@ pipeline {
     post {
 
         success {
+
             echo "=========================================="
             echo "          PIPELINE SUCCESS"
             echo "=========================================="
 
             echo "Deployment completed successfully."
-            echo "Changed modules: ${env.CHANGED_MODULES}"
+
+            echo "Changed modules: ${env.CHANGED_MODULES ?: 'None'}"
         }
 
         failure {
+
             echo "=========================================="
             echo "          PIPELINE FAILED"
             echo "=========================================="
 
             echo "One of the CI/CD stages failed."
+
             echo "Deployment did not complete successfully."
+
+            echo "Changed modules: ${env.CHANGED_MODULES ?: 'None'}"
         }
 
         always {
+
             echo "=========================================="
             echo "          PIPELINE FINISHED"
             echo "=========================================="
