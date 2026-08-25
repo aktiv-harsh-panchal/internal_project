@@ -20,6 +20,7 @@ pipeline {
         // =========================================================
         // CHECKOUT
         // =========================================================
+
         stage('Checkout') {
             steps {
 
@@ -64,6 +65,7 @@ pipeline {
         // =========================================================
         // DETECT CHANGED MODULES
         // =========================================================
+
         stage('Detect Changed Modules') {
             steps {
 
@@ -127,6 +129,7 @@ pipeline {
         // =========================================================
         // PYLINT
         // =========================================================
+
         stage('Pylint Check') {
 
             when {
@@ -191,6 +194,7 @@ pipeline {
         // =========================================================
         // DEPLOY CUSTOM ADDONS
         // =========================================================
+
         stage('Deploy Custom Addons') {
 
             when {
@@ -276,8 +280,112 @@ pipeline {
 
 
         // =========================================================
-        // UPGRADE ODOO MODULES
+        // STOP MANUALLY RUNNING ODOO
+        //
+        // Odoo is NOT managed by systemctl.
+        // Jenkins stops the process directly.
         // =========================================================
+
+        stage('Stop Odoo') {
+
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
+
+            steps {
+
+                echo "=========================================="
+                echo "STOPPING ODOO"
+                echo "=========================================="
+
+                sh '''
+                    set -e
+
+                    echo "Odoo binary:"
+                    echo "$ODOO_BIN"
+
+                    echo ""
+                    echo "Searching for running Odoo process..."
+
+                    ODOO_PIDS=$(pgrep -u odoo -f "$ODOO_BIN" || true)
+
+                    if [ -n "$ODOO_PIDS" ]; then
+
+                        echo "Running Odoo PID(s):"
+                        echo "$ODOO_PIDS"
+
+                        echo ""
+                        echo "Sending TERM signal..."
+
+                        sudo -n -u odoo kill $ODOO_PIDS || true
+
+                        echo ""
+                        echo "Waiting for Odoo to stop..."
+
+                        for i in $(seq 1 30)
+                        do
+
+                            if pgrep -u odoo -f "$ODOO_BIN" > /dev/null
+                            then
+                                echo "Odoo still running... waiting ($i/30)"
+                                sleep 1
+                            else
+                                echo "Odoo stopped successfully."
+                                break
+                            fi
+
+                        done
+
+                        if pgrep -u odoo -f "$ODOO_BIN" > /dev/null
+                        then
+                            echo ""
+                            echo "Odoo did not stop after 30 seconds."
+                            echo "Sending KILL signal..."
+
+                            ODOO_PIDS=$(pgrep -u odoo -f "$ODOO_BIN" || true)
+
+                            if [ -n "$ODOO_PIDS" ]; then
+                                sudo -n -u odoo kill -9 $ODOO_PIDS || true
+                            fi
+
+                            sleep 2
+                        fi
+
+                    else
+
+                        echo "No running Odoo process found."
+
+                    fi
+
+                    echo ""
+                    echo "Checking port ${ODOO_PORT}..."
+
+                    if ss -ltnp | grep -q ":${ODOO_PORT} "
+                    then
+                        echo "WARNING: Port ${ODOO_PORT} is still in use."
+                        ss -ltnp | grep ":${ODOO_PORT} " || true
+                    else
+                        echo "Port ${ODOO_PORT} is free."
+                    fi
+
+                    echo ""
+                    echo "=========================================="
+                    echo "Odoo stop operation completed."
+                    echo "=========================================="
+                '''
+            }
+        }
+
+
+        // =========================================================
+        // UPGRADE ODOO MODULES
+        //
+        // Odoo is stopped before this stage.
+        // --stop-after-init performs the database upgrade and exits.
+        // =========================================================
+
         stage('Upgrade Odoo Modules') {
 
             when {
@@ -324,14 +432,6 @@ pipeline {
                     echo "------------------------------------------"
                     echo "$CHANGED_MODULES"
 
-                    # Convert:
-                    #
-                    # ai_invoice_agent sale_project_management
-                    #
-                    # into:
-                    #
-                    # ai_invoice_agent,sale_project_management
-
                     MODULES_TO_UPGRADE=$(echo "$CHANGED_MODULES" | tr ' ' ',')
 
                     echo ""
@@ -360,13 +460,135 @@ pipeline {
 
 
         // =========================================================
-        // ODOO SERVER CHECK
+        // START ODOO
         //
-        // IMPORTANT:
-        // Odoo is manually running on this server.
-        // Jenkins must NOT start or restart Odoo.
+        // Odoo is manually managed.
+        // Jenkins starts it directly as the odoo user.
         // =========================================================
+
+        stage('Start Odoo') {
+
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
+
+            steps {
+
+                echo "=========================================="
+                echo "STARTING ODOO"
+                echo "=========================================="
+
+                sh '''
+                    set -e
+
+                    echo "Python:"
+                    echo "$ODOO_PYTHON"
+
+                    echo ""
+                    echo "Odoo binary:"
+                    echo "$ODOO_BIN"
+
+                    echo ""
+                    echo "Odoo config:"
+                    echo "$ODOO_CONF"
+
+                    test -f "$ODOO_BIN"
+                    test -f "$ODOO_CONF"
+
+                    echo ""
+                    echo "Checking if Odoo is already running..."
+
+                    EXISTING_PIDS=$(pgrep -u odoo -f "$ODOO_BIN" || true)
+
+                    if [ -n "$EXISTING_PIDS" ]; then
+
+                        echo "Odoo is already running."
+                        echo "PID(s):"
+                        echo "$EXISTING_PIDS"
+
+                    else
+
+                        echo "Odoo is not running."
+                        echo "Starting Odoo as odoo user..."
+
+                        sudo -n -u odoo sh -c "
+                            nohup '$ODOO_PYTHON' '$ODOO_BIN' \
+                                -c '$ODOO_CONF' \
+                                > /home/odoo/workspace/odoo/odoo_19/odoo.log 2>&1 \
+                                < /dev/null &
+                        "
+
+                        echo ""
+                        echo "Waiting for Odoo to start..."
+
+                        sleep 5
+
+                    fi
+
+                    echo ""
+                    echo "Checking Odoo process..."
+
+                    for i in $(seq 1 30)
+                    do
+
+                        if pgrep -u odoo -f "$ODOO_BIN" > /dev/null
+                        then
+
+                            echo ""
+                            echo "Odoo process is running."
+
+                            pgrep -u odoo -af "$ODOO_BIN"
+
+                            break
+
+                        else
+
+                            echo "Waiting for Odoo process... ($i/30)"
+
+                            sleep 1
+
+                        fi
+
+                    done
+
+                    if ! pgrep -u odoo -f "$ODOO_BIN" > /dev/null
+                    then
+
+                        echo ""
+                        echo "ERROR: Odoo process did not start."
+
+                        echo ""
+                        echo "Last 100 lines of Odoo log:"
+                        echo "------------------------------------------"
+
+                        tail -100 \
+                            /home/odoo/workspace/odoo/odoo_19/odoo.log || true
+
+                        exit 1
+                    fi
+
+                    echo ""
+                    echo "=========================================="
+                    echo "Odoo started successfully."
+                    echo "=========================================="
+                '''
+            }
+        }
+
+
+        // =========================================================
+        // ODOO SERVER CHECK
+        // =========================================================
+
         stage('Odoo Server Check') {
+
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
 
             steps {
 
@@ -377,14 +599,13 @@ pipeline {
                 sh '''
                     set -e
 
-                    echo "Odoo is expected to be running manually."
-
-                    echo ""
-                    echo "Checking port:"
-                    echo "$ODOO_PORT"
-
-                    echo ""
                     echo "Checking Odoo HTTP server..."
+
+                    echo ""
+                    echo "URL:"
+                    echo "http://127.0.0.1:${ODOO_PORT}/web/login"
+
+                    echo ""
 
                     if curl -fsS \
                         --max-time 10 \
@@ -392,23 +613,30 @@ pipeline {
                         > /dev/null
                     then
 
-                        echo ""
-                        echo "Odoo server is running."
-                        echo "Port ${ODOO_PORT} is responding."
-                        echo "No restart required."
+                        echo "Odoo server is responding."
+                        echo "Port ${ODOO_PORT} is active."
 
                     else
 
                         echo ""
                         echo "ERROR: Odoo server is NOT responding."
+
                         echo ""
-                        echo "Expected:"
-                        echo "http://127.0.0.1:${ODOO_PORT}/web/login"
+                        echo "Odoo process:"
+                        pgrep -u odoo -af "$ODOO_BIN" || true
+
                         echo ""
-                        echo "Please start Odoo manually."
+                        echo "Last 100 lines of Odoo log:"
+                        tail -100 \
+                            /home/odoo/workspace/odoo/odoo_19/odoo.log || true
 
                         exit 1
                     fi
+
+                    echo ""
+                    echo "=========================================="
+                    echo "Odoo server check passed."
+                    echo "=========================================="
                 '''
             }
         }
@@ -417,7 +645,14 @@ pipeline {
         // =========================================================
         // ODOO HEALTH CHECK
         // =========================================================
+
         stage('Odoo Health Check') {
+
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
 
             steps {
 
@@ -440,7 +675,8 @@ pipeline {
                     echo ""
                     echo "HTTP status: $HTTP_CODE"
 
-                    if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 500 ]; then
+                    if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 500 ]
+                    then
 
                         echo ""
                         echo "=========================================="
@@ -464,6 +700,7 @@ pipeline {
     // =============================================================
     // POST ACTIONS
     // =============================================================
+
     post {
 
         success {
@@ -475,6 +712,9 @@ pipeline {
             echo "Deployment completed successfully."
 
             echo "Changed modules: ${env.CHANGED_MODULES ?: 'None'}"
+
+            echo ""
+            echo "Odoo was restarted because module changes were detected."
         }
 
         failure {
