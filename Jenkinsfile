@@ -299,139 +299,56 @@ pipeline {
         // =========================================================
         // RESTART ODOO
         // =========================================================
-        stage('Restart Odoo') {
-            steps {
-                echo "=========================================="
-                echo "RESTARTING ODOO"
-                echo "=========================================="
+        stage('Odoo Server Check') {
+	    steps {
+		echo "=========================================="
+		echo "ODOO SERVER CHECK"
+		echo "=========================================="
 
-                sh '''
-                    set -e
+		sh '''
+		    set -e
 
-                    echo "Odoo Python:"
-                    echo "$ODOO_PYTHON"
+		    echo "Checking Odoo HTTP server on port 8069..."
 
-                    echo "Odoo binary:"
-                    echo "$ODOO_BIN"
-
-                    echo "Odoo config:"
-                    echo "$ODOO_CONF"
-
-                    echo ""
-                    echo "Checking existing Odoo process..."
-
-                    ODOO_PIDS=$(pgrep -f "$ODOO_BIN" || true)
-
-                    if [ -n "$ODOO_PIDS" ]; then
-                        echo "Existing Odoo process(es):"
-                        echo "$ODOO_PIDS"
-
-                        echo ""
-                        echo "Stopping existing Odoo process..."
-
-                        for PID in $ODOO_PIDS
-                        do
-                            sudo -n -u odoo kill "$PID" || true
-                        done
-
-                        echo "Waiting for Odoo to stop..."
-                        sleep 5
-                    else
-                        echo "No existing Odoo process found."
-                    fi
-
-                    echo ""
-                    echo "Starting Odoo as odoo user..."
-
-                    sudo -n -u odoo sh -c "
-                        nohup '$ODOO_PYTHON' '$ODOO_BIN' \
-                            -c '$ODOO_CONF' \
-                            > /home/odoo/workspace/odoo/odoo_19/odoo.log 2>&1 \
-                            < /dev/null &
-                    "
-
-                    echo ""
-                    echo "Waiting for Odoo to start..."
-
-                    sleep 10
-
-                    echo ""
-                    echo "Checking Odoo process..."
-
-                    if pgrep -f "$ODOO_BIN" > /dev/null
-                    then
-                        echo "Odoo process is running."
-                        pgrep -af "$ODOO_BIN"
-                    else
-                        echo "ERROR: Odoo process did not start."
-                        echo ""
-                        echo "Last Odoo log:"
-                        tail -100 /home/odoo/workspace/odoo/odoo_19/odoo.log || true
-                        exit 1
-                    fi
-
-                    echo ""
-                    echo "Odoo started successfully."
-                '''
-            }
-        }
+		    if curl -fsS --max-time 10 http://127.0.0.1:8069/web/login > /dev/null; then
+		        echo ""
+		        echo "Odoo server is already running."
+		        echo "No restart required because Odoo is running manually."
+		    else
+		        echo ""
+		        echo "ERROR: Odoo server is not responding on port 8069."
+		        echo ""
+		        echo "Check your manually running Odoo server."
+		        exit 1
+		    fi
+		'''
+	    }
+	}
 
 
         // =========================================================
         // ODOO HEALTH CHECK
         // =========================================================
         stage('Odoo Health Check') {
-            steps {
-                echo "=========================================="
-                echo "ODOO HEALTH CHECK"
-                echo "=========================================="
+	    steps {
+		echo "=========================================="
+		echo "ODOO HEALTH CHECK"
+		echo "=========================================="
 
-                sh '''
-                    set -e
+		sh '''
+		    set -e
 
-                    echo "Checking Odoo HTTP server..."
+		    echo "Checking Odoo HTTP server..."
 
-                    echo ""
-                    echo "Testing:"
-                    echo "http://127.0.0.1:${ODOO_PORT}/web/login"
+		    curl -fsS --max-time 10 \
+		        http://127.0.0.1:8069/web/login \
+		        > /dev/null
 
-                    for i in 1 2 3 4 5 6 7 8 9 10
-                    do
-                        if curl -fsS \
-                            --max-time 5 \
-                            "http://127.0.0.1:${ODOO_PORT}/web/login" \
-                            > /dev/null
-                        then
-                            echo ""
-                            echo "=========================================="
-                            echo "ODOO HEALTH CHECK PASSED"
-                            echo "=========================================="
-                            exit 0
-                        fi
-
-                        echo "Odoo is not ready yet. Attempt $i/10..."
-                        sleep 3
-                    done
-
-                    echo ""
-                    echo "=========================================="
-                    echo "ODOO HEALTH CHECK FAILED"
-                    echo "=========================================="
-
-                    echo ""
-                    echo "Odoo process:"
-                    pgrep -af "$ODOO_BIN" || true
-
-                    echo ""
-                    echo "Last 100 lines of Odoo log:"
-                    tail -100 /home/odoo/workspace/odoo/odoo_19/odoo.log || true
-
-                    exit 1
-                '''
-            }
-        }
-
-    }
+		    echo ""
+		    echo "Odoo health check passed."
+		'''
+	    }
+	}
 
 
     // =============================================================
