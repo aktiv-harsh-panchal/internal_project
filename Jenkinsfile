@@ -10,18 +10,18 @@ pipeline {
         ODOO_SERVER = '192.168.1.127'
         ODOO_USER = 'odoo'
 
-        // Custom addons on Odoo server
+        // Custom addons
         ODOO_CUSTOM_ADDONS = '/home/odoo/workspace/internal_project'
 
-        // Odoo 19 standard/core addons
+        // Odoo 19 addons
         ODOO_ADDONS = '/home/odoo/workspace/odoo/odoo_19/addons'
         ODOO_CORE_ADDONS = '/home/odoo/workspace/odoo/odoo_19/odoo/addons'
 
         // Odoo executable
         ODOO_BIN = '/home/odoo/workspace/odoo/odoo_19/odoo-bin'
 
-        // CHANGE THIS to your actual database name
-        ODOO_DB = 'test'
+        // Change this to your actual Odoo database name
+        ODOO_DB = 'YOUR_DATABASE_NAME'
     }
 
     stages {
@@ -59,19 +59,25 @@ pipeline {
                     def modules = sh(
                         script: '''
                             git diff --name-only HEAD~1 HEAD |
-                            awk -F'/' 'NF >= 2 {print $1}' |
-                            sort -u
+                            grep '^custom_addons/' |
+                            cut -d'/' -f2 |
+                            sort -u |
+                            tr '\\n' ' '
                         ''',
                         returnStdout: true
                     ).trim()
 
                     if (!modules) {
-                        error("No changed Odoo modules detected.")
+                        echo "No Odoo module changes detected."
+                        echo "Nothing to deploy."
+
+                        env.CHANGED_MODULES = ''
+                    } else {
+                        env.CHANGED_MODULES = modules
+
+                        echo "Changed Odoo modules:"
+                        echo env.CHANGED_MODULES
                     }
-
-                    env.CHANGED_MODULES = modules
-
-                    echo "Changed modules: ${env.CHANGED_MODULES}"
                 }
             }
         }
@@ -90,16 +96,22 @@ pipeline {
         }
 
         stage('Deploy Custom Addons') {
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
+
             steps {
-                echo "Deploying custom addons to Odoo server..."
+                echo "Deploying changed Odoo modules..."
 
                 sshagent(credentials: ['odoo-server-ssh']) {
 
                     sh '''
-                        rsync -avz --delete \
+                        rsync -avz \
                         --exclude='.git' \
                         --exclude='build' \
-                        ./ \
+                        custom_addons/ \
                         ${ODOO_USER}@${ODOO_SERVER}:${ODOO_CUSTOM_ADDONS}/
                     '''
                 }
@@ -107,6 +119,12 @@ pipeline {
         }
 
         stage('Upgrade Odoo Modules') {
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
+
             steps {
                 echo "Upgrading changed Odoo modules..."
 
@@ -126,8 +144,14 @@ pipeline {
         }
 
         stage('Restart Odoo') {
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
+
             steps {
-                echo "Restarting Odoo service..."
+                echo "Restarting Odoo..."
 
                 sshagent(credentials: ['odoo-server-ssh']) {
 
@@ -146,16 +170,24 @@ pipeline {
         success {
             echo "=========================================="
             echo "CI/CD PIPELINE SUCCESSFUL"
-            echo "Changed modules: ${env.CHANGED_MODULES}"
-            echo "Odoo deployment completed successfully."
             echo "=========================================="
+
+            script {
+                if (env.CHANGED_MODULES?.trim()) {
+                    echo "Changed modules: ${env.CHANGED_MODULES}"
+                    echo "Odoo deployment completed successfully."
+                } else {
+                    echo "No Odoo modules were changed."
+                    echo "Deployment was skipped."
+                }
+            }
         }
 
         failure {
             echo "=========================================="
             echo "CI/CD PIPELINE FAILED"
-            echo "Odoo deployment was NOT completed."
             echo "=========================================="
+            echo "Odoo deployment was NOT completed."
         }
     }
 }
