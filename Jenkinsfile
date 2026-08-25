@@ -130,97 +130,78 @@ pipeline {
         // ============================================================
 
         stage('Detect Changed Modules') {
+	    steps {
+		script {
 
-            steps {
+		    echo '=========================================='
+		    echo 'DETECTING CHANGED ODOO MODULES'
+		    echo '=========================================='
 
-                script {
+		    def changedFiles = sh(
+		        script: '''
+		            git diff --name-only HEAD~1 HEAD
+		        ''',
+		        returnStdout: true
+		    ).trim()
 
-                    echo '=========================================='
-                    echo 'DETECTING CHANGED ODOO MODULES'
-                    echo '=========================================='
+		    echo "Changed files:"
+		    echo changedFiles
 
-                    def changedFiles = sh(
-                        script: '''
-                            git diff --name-only HEAD~1 HEAD || true
-                        ''',
-                        returnStdout: true
-                    ).trim()
+		    def modules = sh(
+		        script: '''
+		            git diff --name-only HEAD~1 HEAD |
+		            awk -F/ 'NF >= 2 {print $1}' |
+		            sort -u |
+		            tr '\\n' ' '
+		        ''',
+		        returnStdout: true
+		    ).trim()
 
-                    echo "Changed files:"
-                    echo changedFiles
+		    if (modules) {
 
+		        env.CHANGED_MODULES = modules
 
-                    // Find modules only inside custom_addons/
-                    def modules = sh(
-                        script: '''
-                            git diff --name-only HEAD~1 HEAD 2>/dev/null |
-                            grep '^custom_addons/' |
-                            cut -d'/' -f2 |
-                            sort -u |
-                            tr '\\n' ' ' || true
-                        ''',
-                        returnStdout: true
-                    ).trim()
+		        echo "Changed Odoo modules:"
+		        echo "${env.CHANGED_MODULES}"
 
+		    } else {
 
-                    if (modules) {
+		        env.CHANGED_MODULES = ''
 
-                        env.CHANGED_MODULES = modules
-
-                        echo '------------------------------------------'
-                        echo 'Odoo modules changed:'
-                        echo "${env.CHANGED_MODULES}"
-                        echo '------------------------------------------'
-
-                    } else {
-
-                        env.CHANGED_MODULES = ''
-
-                        echo '------------------------------------------'
-                        echo 'No Odoo module changes detected.'
-                        echo 'Deployment will be skipped.'
-                        echo '------------------------------------------'
-                    }
-                }
-            }
-        }
+		        echo "No Odoo module changes detected."
+		        echo "Deployment will be skipped."
+		    }
+		}
+	    }
+	}
 
 
         // ============================================================
         // 3. PYLINT
         // ============================================================
 
-        stage('Pylint Check') {
+	stage('Pylint Check') {
+	    steps {
+		script {
 
-            steps {
+		    if (env.CHANGED_MODULES?.trim()) {
 
-                script {
+		        echo "Running Pylint..."
 
-                    if (env.CHANGED_MODULES?.trim()) {
+		        sh '''
+		            python3 --version
+		            pylint --version
+		            pylint --fail-under=7.0 ${CHANGED_MODULES}
+		        '''
 
-                        echo '=========================================='
-                        echo 'PYLINT CHECK'
-                        echo '=========================================='
+		    } else {
 
-                        sh '''
-                            python3 --version
-                            pylint --version
-
-                            echo "Running Pylint on custom addons..."
-
-                            pylint --fail-under=7.0 custom_addons
-                        '''
-
-                        echo 'Pylint check completed successfully.'
-
-                    } else {
-
-                        echo 'No Odoo modules changed.'
-                        echo 'Pylint check skipped.'
-                    }
-                }
-            }
-        }
+		        echo "No Odoo modules changed."
+		        echo "Pylint check skipped."
+		    }
+		}
+	    }
+	}
 
 
         // ============================================================
