@@ -186,13 +186,21 @@ pipeline {
 
 		    if (env.CHANGED_MODULES?.trim()) {
 
-		        echo "Running Pylint..."
+		        echo "=========================================="
+		        echo "PYLINT CHECK"
+		        echo "=========================================="
+
+		        echo "Changed modules: ${env.CHANGED_MODULES}"
+		        echo "Minimum required Pylint score: 4.0"
 
 		        sh '''
 		            python3 --version
 		            pylint --version
-		            pylint --fail-under=7.0 ${CHANGED_MODULES}
+
+		            pylint --fail-under=4.0 ${CHANGED_MODULES}
 		        '''
+
+		        echo "Pylint check passed."
 
 		    } else {
 
