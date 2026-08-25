@@ -251,16 +251,21 @@ pipeline {
 
 		    test -f "$ODOO_CONF"
 
+		    echo ""
 		    echo "Modules to upgrade:"
 		    echo "$CHANGED_MODULES"
 
-		    echo "Running Odoo module upgrade..."
+		    echo ""
+		    echo "Running Odoo module upgrade as odoo user..."
 
-		    $ODOO_PYTHON $ODOO_BIN \
+		    sudo -n -u odoo $ODOO_PYTHON $ODOO_BIN \
 		        -c "$ODOO_CONF" \
 		        -d test \
 		        -u "$CHANGED_MODULES" \
 		        --stop-after-init
+
+		    echo ""
+		    echo "Odoo module upgrade completed successfully."
 		'''
 	    }
 	}
