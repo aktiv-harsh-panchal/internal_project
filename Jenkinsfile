@@ -4,6 +4,7 @@ pipeline {
     environment {
         ODOO_PYTHON = '/home/odoo/.virtualenvs/odoo19/bin/python3'
         ODOO_BIN = '/home/odoo/workspace/odoo/odoo_19/odoo-bin'
+        ODOO_CONF = '/home/odoo/workspace/odoo/odoo_19/odoo_19.conf'
 
         ODOO_CUSTOM_ADDONS = '/home/odoo/workspace/internal_project'
 
@@ -11,6 +12,8 @@ pipeline {
         ODOO_CORE_ADDONS = '/home/odoo/workspace/odoo/odoo_19/odoo/addons'
 
         ODOO_DATABASE = 'test'
+
+        ODOO_PORT = '8069'
     }
 
     stages {
@@ -124,19 +127,19 @@ pipeline {
                     echo "=========================================="
 
                     echo "Changed modules: ${env.CHANGED_MODULES}"
-                    echo "Minimum required Pylint score: 4.0"
+                    echo "Minimum required Pylint score: 3.0"
 
                     sh '''
                         set -e
 
                         echo "Python:"
-                        $ODOO_PYTHON --version
+                        "$ODOO_PYTHON" --version
 
                         echo "Python executable:"
-                        $ODOO_PYTHON -c "import sys; print(sys.executable)"
+                        "$ODOO_PYTHON" -c "import sys; print(sys.executable)"
 
                         echo "Pylint:"
-                        $ODOO_PYTHON -m pylint --version
+                        "$ODOO_PYTHON" -m pylint --version
 
                         echo ""
                         echo "Running Pylint..."
@@ -146,7 +149,7 @@ pipeline {
                             echo ""
                             echo "Checking module: $MODULE"
 
-                            $ODOO_PYTHON -m pylint \
+                            "$ODOO_PYTHON" -m pylint \
                                 --fail-under=3.0 \
                                 "$MODULE"
                         done
@@ -163,175 +166,273 @@ pipeline {
         // DEPLOY CUSTOM ADDONS
         // =========================================================
         stage('Deploy Custom Addons') {
-	    when {
-		expression {
-		    return env.CHANGED_MODULES?.trim()
-		}
-	    }
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
 
-	    steps {
-		echo "=========================================="
-		echo "DEPLOYING CUSTOM ADDONS"
-		echo "=========================================="
+            steps {
+                echo "=========================================="
+                echo "DEPLOYING CUSTOM ADDONS"
+                echo "=========================================="
 
-		sh '''
-		    set -e
+                sh '''
+                    set -e
 
-		    echo "Jenkins workspace:"
-		    pwd
+                    echo "Jenkins workspace:"
+                    pwd
 
-		    echo ""
-		    echo "Target:"
-		    echo "$ODOO_CUSTOM_ADDONS"
+                    echo ""
+                    echo "Target:"
+                    echo "$ODOO_CUSTOM_ADDONS"
 
-		    test -d "$ODOO_CUSTOM_ADDONS"
+                    test -d "$ODOO_CUSTOM_ADDONS"
 
-		    for MODULE in $CHANGED_MODULES
-		    do
-		        echo ""
-		        echo "Deploying module: $MODULE"
+                    for MODULE in $CHANGED_MODULES
+                    do
+                        echo ""
+                        echo "Deploying module: $MODULE"
 
-		        rm -rf "$ODOO_CUSTOM_ADDONS/$MODULE"
+                        rm -rf "$ODOO_CUSTOM_ADDONS/$MODULE"
 
-		        cp -r "$MODULE" "$ODOO_CUSTOM_ADDONS/"
-		    done
+                        cp -r "$MODULE" "$ODOO_CUSTOM_ADDONS/"
+                    done
 
-		    echo ""
-		    echo "Fixing ownership for entire internal_project..."
+                    echo ""
+                    echo "Fixing ownership for entire internal_project..."
 
-		    sudo -n chown -R odoo:odoo "$ODOO_CUSTOM_ADDONS"
+                    sudo -n chown -R odoo:odoo "$ODOO_CUSTOM_ADDONS"
 
-		    echo ""
-		    echo "Fixing permissions for entire internal_project..."
+                    echo ""
+                    echo "Fixing permissions for entire internal_project..."
 
-		    sudo -n chmod -R 777 "$ODOO_CUSTOM_ADDONS"
+                    sudo -n chmod -R 777 "$ODOO_CUSTOM_ADDONS"
 
-		    echo ""
-		    echo "Final permissions:"
-		    ls -ld "$ODOO_CUSTOM_ADDONS"
-		    ls -ld "$ODOO_CUSTOM_ADDONS"/*
+                    echo ""
+                    echo "Final permissions:"
 
-		    echo ""
-		    echo "Custom addons deployed successfully."
-		'''
-	    }
-	}
+                    ls -ld "$ODOO_CUSTOM_ADDONS"
+
+                    for MODULE in $CHANGED_MODULES
+                    do
+                        ls -ld "$ODOO_CUSTOM_ADDONS/$MODULE"
+                    done
+
+                    echo ""
+                    echo "Custom addons deployed successfully."
+                '''
+            }
+        }
 
 
         // =========================================================
         // UPGRADE ODOO MODULES
         // =========================================================
         stage('Upgrade Odoo Modules') {
-	    when {
-		expression {
-		    return env.CHANGED_MODULES?.trim()
-		}
-	    }
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
 
-	    steps {
-		echo "=========================================="
-		echo "UPGRADING ODOO MODULES"
-		echo "=========================================="
+            steps {
+                echo "=========================================="
+                echo "UPGRADING ODOO MODULES"
+                echo "=========================================="
 
-		sh '''
-		    set -e
+                sh '''
+                    set -e
 
-		    ODOO_PYTHON="/home/odoo/.virtualenvs/odoo19/bin/python3"
-		    ODOO_BIN="/home/odoo/workspace/odoo/odoo_19/odoo-bin"
-		    ODOO_CONF="/home/odoo/workspace/odoo/odoo_19/odoo_19.conf"
+                    echo "Python:"
+                    "$ODOO_PYTHON" --version
 
-		    echo "Python:"
-		    $ODOO_PYTHON --version
+                    echo ""
+                    echo "Checking passlib:"
 
-		    echo "Checking passlib:"
-		    $ODOO_PYTHON -c "import passlib; print('passlib:', passlib.__version__)"
+                    "$ODOO_PYTHON" -c \
+                        "import passlib; print('passlib:', passlib.__version__)"
 
-		    echo "Odoo config:"
-		    echo "$ODOO_CONF"
+                    echo ""
+                    echo "Odoo binary:"
+                    echo "$ODOO_BIN"
 
-		    test -f "$ODOO_CONF"
+                    echo ""
+                    echo "Odoo config:"
+                    echo "$ODOO_CONF"
 
-		    echo ""
-		    echo "Modules to upgrade:"
-		    echo "$CHANGED_MODULES"
+                    test -f "$ODOO_CONF"
+                    test -f "$ODOO_BIN"
 
-		    echo ""
-		    echo "Running Odoo module upgrade as odoo user..."
+                    echo ""
+                    echo "Modules to upgrade:"
+                    echo "$CHANGED_MODULES"
 
-		    sudo -n -u odoo $ODOO_PYTHON $ODOO_BIN \
-		        -c "$ODOO_CONF" \
-		        -d test \
-		        -u "$CHANGED_MODULES" \
-		        --stop-after-init
+                    # Convert:
+                    # module1 module2
+                    #
+                    # into:
+                    # module1,module2
 
-		    echo ""
-		    echo "Odoo module upgrade completed successfully."
-		'''
-	    }
-	}
+                    MODULES_TO_UPGRADE=$(echo "$CHANGED_MODULES" | tr ' ' ',')
+
+                    echo ""
+                    echo "Odoo upgrade list:"
+                    echo "$MODULES_TO_UPGRADE"
+
+                    echo ""
+                    echo "Running Odoo module upgrade as odoo user..."
+
+                    sudo -n -u odoo "$ODOO_PYTHON" "$ODOO_BIN" \
+                        -c "$ODOO_CONF" \
+                        -d "$ODOO_DATABASE" \
+                        -u "$MODULES_TO_UPGRADE" \
+                        --stop-after-init
+
+                    echo ""
+                    echo "Odoo module upgrade completed successfully."
+                '''
+            }
+        }
 
 
         // =========================================================
         // RESTART ODOO
         // =========================================================
-	stage('Restart Odoo') {
-	    steps {
-		echo "=========================================="
-		echo "RESTARTING ODOO"
-		echo "=========================================="
+        stage('Restart Odoo') {
+            steps {
+                echo "=========================================="
+                echo "RESTARTING ODOO"
+                echo "=========================================="
 
-		sh '''
-		    set -e
+                sh '''
+                    set -e
 
-		    ODOO_PYTHON="/home/odoo/.virtualenvs/odoo19/bin/python3"
-		    ODOO_BIN="/home/odoo/workspace/odoo/odoo_19/odoo-bin"
-		    ODOO_CONF="/home/odoo/workspace/odoo/odoo_19/odoo_19.conf"
+                    echo "Odoo Python:"
+                    echo "$ODOO_PYTHON"
 
-		    echo "Stopping existing Odoo process..."
+                    echo "Odoo binary:"
+                    echo "$ODOO_BIN"
 
-		    pkill -f "$ODOO_BIN" || true
+                    echo "Odoo config:"
+                    echo "$ODOO_CONF"
 
-		    sleep 5
+                    echo ""
+                    echo "Checking existing Odoo process..."
 
-		    echo "Starting Odoo..."
+                    ODOO_PIDS=$(pgrep -f "$ODOO_BIN" || true)
 
-		    nohup "$ODOO_PYTHON" "$ODOO_BIN" \
-		        -c "$ODOO_CONF" \
-		        > /home/odoo/workspace/odoo/odoo_19/odoo.log 2>&1 &
+                    if [ -n "$ODOO_PIDS" ]; then
+                        echo "Existing Odoo process(es):"
+                        echo "$ODOO_PIDS"
 
-		    sleep 10
+                        echo ""
+                        echo "Stopping existing Odoo process..."
 
-		    echo "Checking Odoo process..."
+                        for PID in $ODOO_PIDS
+                        do
+                            sudo -n -u odoo kill "$PID" || true
+                        done
 
-		    pgrep -af "$ODOO_BIN"
+                        echo "Waiting for Odoo to stop..."
+                        sleep 5
+                    else
+                        echo "No existing Odoo process found."
+                    fi
 
-		    echo "Odoo started successfully."
-		'''
-	    }
-	}
+                    echo ""
+                    echo "Starting Odoo as odoo user..."
+
+                    sudo -n -u odoo sh -c "
+                        nohup '$ODOO_PYTHON' '$ODOO_BIN' \
+                            -c '$ODOO_CONF' \
+                            > /home/odoo/workspace/odoo/odoo_19/odoo.log 2>&1 \
+                            < /dev/null &
+                    "
+
+                    echo ""
+                    echo "Waiting for Odoo to start..."
+
+                    sleep 10
+
+                    echo ""
+                    echo "Checking Odoo process..."
+
+                    if pgrep -f "$ODOO_BIN" > /dev/null
+                    then
+                        echo "Odoo process is running."
+                        pgrep -af "$ODOO_BIN"
+                    else
+                        echo "ERROR: Odoo process did not start."
+                        echo ""
+                        echo "Last Odoo log:"
+                        tail -100 /home/odoo/workspace/odoo/odoo_19/odoo.log || true
+                        exit 1
+                    fi
+
+                    echo ""
+                    echo "Odoo started successfully."
+                '''
+            }
+        }
 
 
         // =========================================================
         // ODOO HEALTH CHECK
         // =========================================================
-	stage('Odoo Health Check') {
-	    steps {
-		echo "=========================================="
-		echo "ODOO HEALTH CHECK"
-		echo "=========================================="
+        stage('Odoo Health Check') {
+            steps {
+                echo "=========================================="
+                echo "ODOO HEALTH CHECK"
+                echo "=========================================="
 
-		sh '''
-		    set -e
+                sh '''
+                    set -e
 
-		    echo "Checking Odoo HTTP server..."
+                    echo "Checking Odoo HTTP server..."
 
-		    curl -f http://127.0.0.1:8069/web/login
+                    echo ""
+                    echo "Testing:"
+                    echo "http://127.0.0.1:${ODOO_PORT}/web/login"
 
-		    echo ""
-		    echo "Odoo health check passed."
-		'''
-	    }
-	}
+                    for i in 1 2 3 4 5 6 7 8 9 10
+                    do
+                        if curl -fsS \
+                            --max-time 5 \
+                            "http://127.0.0.1:${ODOO_PORT}/web/login" \
+                            > /dev/null
+                        then
+                            echo ""
+                            echo "=========================================="
+                            echo "ODOO HEALTH CHECK PASSED"
+                            echo "=========================================="
+                            exit 0
+                        fi
+
+                        echo "Odoo is not ready yet. Attempt $i/10..."
+                        sleep 3
+                    done
+
+                    echo ""
+                    echo "=========================================="
+                    echo "ODOO HEALTH CHECK FAILED"
+                    echo "=========================================="
+
+                    echo ""
+                    echo "Odoo process:"
+                    pgrep -af "$ODOO_BIN" || true
+
+                    echo ""
+                    echo "Last 100 lines of Odoo log:"
+                    tail -100 /home/odoo/workspace/odoo/odoo_19/odoo.log || true
+
+                    exit 1
+                '''
+            }
+        }
+
+    }
+
 
     // =============================================================
     // POST ACTIONS
