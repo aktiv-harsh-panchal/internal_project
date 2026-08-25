@@ -214,49 +214,48 @@ pipeline {
         // UPGRADE ODOO MODULES
         // =========================================================
         stage('Upgrade Odoo Modules') {
-            when {
-                expression {
-                    return env.CHANGED_MODULES?.trim()
-                }
-            }
+	    when {
+		expression {
+		    return env.CHANGED_MODULES?.trim()
+		}
+	    }
 
-            steps {
-                echo "=========================================="
-                echo "UPGRADING ODOO MODULES"
-                echo "=========================================="
+	    steps {
+		echo "=========================================="
+		echo "UPGRADING ODOO MODULES"
+		echo "=========================================="
 
-                sh '''
-                    set -e
+		sh '''
+		    set -e
 
-                    echo "Python:"
-                    $ODOO_PYTHON --version
+		    ODOO_PYTHON="/home/odoo/.virtualenvs/odoo19/bin/python3"
+		    ODOO_BIN="/home/odoo/workspace/odoo/odoo_19/odoo-bin"
+		    ODOO_CONF="/home/odoo/workspace/odoo/odoo_19/odoo_19.conf"
 
-                    echo ""
-                    echo "Python executable:"
-                    $ODOO_PYTHON -c "import sys; print(sys.executable)"
+		    echo "Python:"
+		    $ODOO_PYTHON --version
 
-                    echo ""
-                    echo "Checking passlib:"
-                    $ODOO_PYTHON -c "import passlib; print('passlib:', passlib.__version__)"
+		    echo "Checking passlib:"
+		    $ODOO_PYTHON -c "import passlib; print('passlib:', passlib.__version__)"
 
-                    echo ""
-                    echo "Modules to upgrade:"
-                    echo "$CHANGED_MODULES"
+		    echo "Odoo config:"
+		    echo "$ODOO_CONF"
 
-                    echo ""
-                    echo "Running Odoo module upgrade..."
+		    test -f "$ODOO_CONF"
 
-                    $ODOO_PYTHON "$ODOO_BIN" \
-                        -d "$ODOO_DATABASE" \
-                        --addons-path="$ODOO_CUSTOM_ADDONS,$ODOO_ADDONS,$ODOO_CORE_ADDONS" \
-                        -u "$CHANGED_MODULES" \
-                        --stop-after-init
+		    echo "Modules to upgrade:"
+		    echo "$CHANGED_MODULES"
 
-                    echo ""
-                    echo "Odoo module upgrade completed successfully."
-                '''
-            }
-        }
+		    echo "Running Odoo module upgrade..."
+
+		    $ODOO_PYTHON $ODOO_BIN \
+		        -c "$ODOO_CONF" \
+		        -d test \
+		        -u "$CHANGED_MODULES" \
+		        --stop-after-init
+		'''
+	    }
+	}
 
 
         // =========================================================
