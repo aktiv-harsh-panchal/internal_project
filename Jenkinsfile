@@ -163,51 +163,44 @@ pipeline {
         // DEPLOY CUSTOM ADDONS
         // =========================================================
         stage('Deploy Custom Addons') {
-            when {
-                expression {
-                    return env.CHANGED_MODULES?.trim()
-                }
-            }
+	    when {
+		expression {
+		    return env.CHANGED_MODULES?.trim()
+		}
+	    }
 
-            steps {
-                echo "=========================================="
-                echo "DEPLOYING CUSTOM ADDONS"
-                echo "=========================================="
+	    steps {
+		echo "=========================================="
+		echo "DEPLOYING CUSTOM ADDONS"
+		echo "=========================================="
 
-                sh '''
-                    set -e
+		sh '''
+		    set -e
 
-                    echo "Jenkins workspace:"
-                    pwd
+		    echo "Jenkins workspace:"
+		    pwd
 
-                    echo ""
-                    echo "Odoo custom addons directory:"
-                    echo "$ODOO_CUSTOM_ADDONS"
+		    echo "Target:"
+		    echo "$ODOO_CUSTOM_ADDONS"
 
-                    echo ""
-                    echo "Checking target directory..."
+		    test -d "$ODOO_CUSTOM_ADDONS"
 
-                    test -d "$ODOO_CUSTOM_ADDONS"
+		    for MODULE in $CHANGED_MODULES
+		    do
+		        echo "Deploying module: $MODULE"
 
-                    echo "Target directory exists."
+		        rm -rf "$ODOO_CUSTOM_ADDONS/$MODULE"
 
-                    echo ""
-                    echo "Deploying changed modules..."
+		        cp -r "$MODULE" "$ODOO_CUSTOM_ADDONS/"
 
-                    for MODULE in $CHANGED_MODULES
-                    do
-                        echo "Deploying module: $MODULE"
+		        echo "Fixing permissions for $MODULE..."
+		        sudo chmod -R 777 "$ODOO_CUSTOM_ADDONS/$MODULE"
+		    done
 
-                        rm -rf "$ODOO_CUSTOM_ADDONS/$MODULE"
-
-                        cp -r "$MODULE" "$ODOO_CUSTOM_ADDONS/"
-                    done
-
-                    echo ""
-                    echo "Custom addons deployed successfully."
-                '''
-            }
-        }
+		    echo "All changed modules deployed."
+		'''
+	    }
+	}
 
 
         // =========================================================
