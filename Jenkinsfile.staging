@@ -1,0 +1,459 @@
+pipeline {
+
+    agent any
+
+    options {
+        skipDefaultCheckout(true)
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        GITHUB_BRANCH = "staging"
+        PYTHON = "/home/odoo/.virtualenvs/odoo19/bin/python3"
+        ODOO_BIN = "/home/odoo/workspace/odoo/odoo_19/odoo-bin"
+        ODOO_CONFIG = "/home/odoo/workspace/odoo/odoo_19/odoo_19.conf"
+        ODOO_LOG = "/home/odoo/workspace/odoo/odoo_19/odoo.log"
+        DATABASE = "test"
+        SOURCE_DIR = "/home/odoo/workspace/internal_project"
+        PYLINT_MIN_SCORE = "3.0"
+        ODOO_PORT = "8069"
+    }
+
+    stages {
+
+        stage('Checkout Staging Branch') {
+            steps {
+                echo "=========================================="
+                echo "CHECKING OUT STAGING BRANCH"
+                echo "=========================================="
+
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: '*/staging']],
+                    userRemoteConfigs: scm.userRemoteConfigs,
+                    extensions: [
+                        [$class: 'CleanBeforeCheckout']
+                    ]
+                ])
+
+                sh '''
+                    set -e
+                    echo "Current commit:"
+                    git rev-parse HEAD
+                    echo ""
+                    echo "Staging branch commit:"
+                    git rev-parse origin/staging
+
+                    CURRENT_COMMIT=$(git rev-parse HEAD)
+                    STAGING_COMMIT=$(git rev-parse origin/staging)
+
+                    if [ "${CURRENT_COMMIT}" != "${STAGING_COMMIT}" ]; then
+                        echo "ERROR: Jenkins did not checkout the latest staging commit."
+                        exit 1
+                    fi
+
+                    echo "Staging branch checked out successfully."
+                '''
+            }
+        }
+
+        stage('Git Information') {
+            steps {
+                sh '''
+                    set -e
+                    echo "Current commit:"
+                    git rev-parse HEAD
+                    echo ""
+                    echo "Commit message:"
+                    git log -1 --pretty=%B
+                    echo ""
+                    echo "Commit author:"
+                    git log -1 --pretty=format:'%an <%ae>'
+                    echo ""
+                    echo "Remote:"
+                    git remote -v
+                '''
+            }
+        }
+
+        stage('Detect Changed Modules') {
+            steps {
+                script {
+                    def currentCommit = sh(
+                        script: 'git rev-parse HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    def previousCommit = sh(
+                        script: 'git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Previous commit: ${previousCommit}"
+                    echo "Current commit: ${currentCommit}"
+
+                    def changedFiles = sh(
+                        script: "git diff --name-only ${previousCommit} ${currentCommit}",
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Changed files:"
+                    if (changedFiles) {
+                        echo changedFiles
+                    } else {
+                        echo "No files changed."
+                    }
+
+                    def modules = []
+
+                    if (changedFiles) {
+                        changedFiles.split('\n').each { changedFile ->
+                            if (
+                                !changedFile.contains('__pycache__/') &&
+                                !changedFile.endsWith('.pyc') &&
+                                changedFile != 'Jenkinsfile' &&
+                                changedFile != 'jenkinsfile' &&
+                                changedFile != '.gitignore'
+                            ) {
+                                def parts = changedFile.tokenize('/')
+
+                                if (parts.size() >= 2) {
+                                    def moduleName = parts[0]
+
+                                    if (
+                                        fileExists("${moduleName}/__manifest__.py") &&
+                                        !modules.contains(moduleName)
+                                    ) {
+                                        modules.add(moduleName)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    env.CHANGED_MODULES = modules.join(' ')
+
+                    echo "Changed Odoo modules:"
+                    if (env.CHANGED_MODULES?.trim()) {
+                        echo env.CHANGED_MODULES
+                    } else {
+                        echo "No Odoo modules changed."
+                    }
+                }
+            }
+        }
+
+        stage('Pylint Check') {
+            when {
+                expression { return env.CHANGED_MODULES?.trim() }
+            }
+
+            steps {
+                sh '''
+                    set -e
+
+                    echo "Python version:"
+                    ${PYTHON} --version
+
+                    echo ""
+                    echo "Pylint version:"
+                    ${PYTHON} -m pylint --version
+
+                    for module in ${CHANGED_MODULES}
+                    do
+                        echo "Checking module: ${module}"
+
+                        ${PYTHON} -m pylint \
+                            --fail-under=${PYLINT_MIN_SCORE} \
+                            ${module}
+                    done
+
+                    echo "Pylint check passed."
+                '''
+            }
+        }
+
+        stage('Deploy Custom Addons') {
+            when {
+                expression { return env.CHANGED_MODULES?.trim() }
+            }
+
+            steps {
+                sh '''
+                    set -e
+
+                    echo "Jenkins workspace:"
+                    pwd
+
+                    echo "Target directory: ${SOURCE_DIR}"
+
+                    if [ ! -d "${SOURCE_DIR}" ]; then
+                        echo "ERROR: Source directory does not exist."
+                        exit 1
+                    fi
+
+                    echo "Modules to deploy: ${CHANGED_MODULES}"
+
+                    for module in ${CHANGED_MODULES}
+                    do
+                        echo "Deploying module: ${module}"
+
+                        if [ ! -d "${module}" ]; then
+                            echo "ERROR: Module ${module} does not exist in Jenkins workspace."
+                            exit 1
+                        fi
+
+                        sudo -n rm -rf "${SOURCE_DIR}/${module}"
+                        sudo -n cp -a "${module}" "${SOURCE_DIR}/"
+                    done
+
+                    sudo -n chown -R odoo:odoo "${SOURCE_DIR}"
+
+                    echo "Custom addons deployed successfully."
+                '''
+            }
+        }
+
+        stage('Stop Odoo') {
+            when {
+                expression { return env.CHANGED_MODULES?.trim() }
+            }
+
+            steps {
+                sh '''
+                    set -e
+
+                    echo "Checking port ${ODOO_PORT}..."
+
+                    if ss -ltn | grep -q ":${ODOO_PORT} "; then
+                        echo "Stopping Odoo..."
+                        sudo -n fuser -k ${ODOO_PORT}/tcp || true
+
+                        for i in $(seq 1 30)
+                        do
+                            if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
+                                echo "Port released successfully."
+                                break
+                            fi
+
+                            sleep 1
+                        done
+                    fi
+
+                    if ss -ltn | grep -q ":${ODOO_PORT} "; then
+                        echo "ERROR: Port is still in use."
+                        exit 1
+                    fi
+
+                    echo "Odoo stopped successfully."
+                '''
+            }
+        }
+
+        stage('Upgrade Odoo Modules') {
+            when {
+                expression { return env.CHANGED_MODULES?.trim() }
+            }
+
+            steps {
+                sh '''
+                    set -e
+
+                    if [ ! -f "${ODOO_CONFIG}" ]; then
+                        echo "ERROR: Odoo config not found: ${ODOO_CONFIG}"
+                        exit 1
+                    fi
+
+                    if [ ! -f "${ODOO_BIN}" ]; then
+                        echo "ERROR: Odoo binary not found: ${ODOO_BIN}"
+                        exit 1
+                    fi
+
+                    MODULES_TO_UPGRADE=$(echo "${CHANGED_MODULES}" | tr ' ' ',')
+
+                    echo "Database: ${DATABASE}"
+                    echo "Modules to upgrade: ${MODULES_TO_UPGRADE}"
+
+                    sudo -n -u odoo \
+                        "${PYTHON}" \
+                        "${ODOO_BIN}" \
+                        -c "${ODOO_CONFIG}" \
+                        -d "${DATABASE}" \
+                        -u "${MODULES_TO_UPGRADE}" \
+                        --stop-after-init
+
+                    echo "Odoo module upgrade completed successfully."
+                '''
+            }
+        }
+
+        stage('Start Odoo') {
+            when {
+                expression { return env.CHANGED_MODULES?.trim() }
+            }
+
+            steps {
+                sh '''
+                    set -e
+
+                    if [ ! -f "${ODOO_BIN}" ]; then
+                        echo "ERROR: Odoo binary not found: ${ODOO_BIN}"
+                        exit 1
+                    fi
+
+                    if [ ! -f "${ODOO_CONFIG}" ]; then
+                        echo "ERROR: Odoo config not found: ${ODOO_CONFIG}"
+                        exit 1
+                    fi
+
+                    EXISTING_PIDS=$(pgrep -u odoo -f "${ODOO_BIN}" || true)
+
+                    if [ -n "${EXISTING_PIDS}" ]; then
+                        echo "Odoo is already running: ${EXISTING_PIDS}"
+                    else
+                        echo "Starting Odoo..."
+
+                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
+                            echo "ERROR: Port is already in use."
+                            exit 1
+                        fi
+
+                        sudo -n -u odoo sh -c "
+                            nohup '${PYTHON}' '${ODOO_BIN}' \
+                            -c '${ODOO_CONFIG}' \
+                            > '${ODOO_LOG}' 2>&1 \
+                            < /dev/null &
+                        "
+                    fi
+
+                    for i in $(seq 1 30)
+                    do
+                        if pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
+                            echo "Odoo process started."
+                            break
+                        fi
+                        sleep 1
+                    done
+
+                    if ! pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
+                        echo "ERROR: Odoo process did not start."
+                        tail -100 "${ODOO_LOG}" || true
+                        exit 1
+                    fi
+
+                    for i in $(seq 1 30)
+                    do
+                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
+                            echo "Odoo port is listening."
+                            break
+                        fi
+                        sleep 1
+                    done
+
+                    if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
+                        echo "ERROR: Odoo port is not listening."
+                        tail -100 "${ODOO_LOG}" || true
+                        exit 1
+                    fi
+
+                    echo "Odoo started successfully."
+                '''
+            }
+        }
+
+	stage('Odoo Server Check') {
+	    steps {
+		sh '''
+		    set -e
+
+		    echo "=========================================="
+		    echo "ODOO SERVER CHECK"
+		    echo "=========================================="
+
+		    echo "Checking Odoo process..."
+
+		    if pgrep -u odoo -f "odoo-bin" > /dev/null; then
+		        echo "Odoo process is running."
+		        pgrep -a -u odoo -f "odoo-bin"
+		    else
+		        echo "ERROR: Odoo process is not running."
+		        exit 1
+		    fi
+
+		    echo ""
+		    echo "Checking Odoo port..."
+
+		    if ss -ltn | grep -q ":${ODOO_PORT} "; then
+		        echo "Odoo port ${ODOO_PORT} is listening."
+		    else
+		        echo "ERROR: Odoo port ${ODOO_PORT} is not listening."
+		        exit 1
+		    fi
+
+		    echo ""
+		    echo "Odoo server is running correctly."
+		'''
+	    }
+	}
+
+        stage('Odoo Health Check') {
+            steps {
+                sh '''
+                    set -e
+
+                    for i in $(seq 1 30)
+                    do
+                        if curl -fsS \
+                            --max-time 5 \
+                            "http://127.0.0.1:${ODOO_PORT}/web/database/selector" \
+                            > /dev/null
+                        then
+                            echo "Odoo HTTP health check passed."
+                            exit 0
+                        fi
+
+                        echo "Waiting for Odoo HTTP service... (${i}/30)"
+                        sleep 2
+                    done
+
+                    echo "ERROR: Odoo HTTP health check failed."
+                    tail -100 "${ODOO_LOG}" || true
+                    exit 1
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "=========================================="
+            echo "STAGING PIPELINE FINISHED"
+            echo "=========================================="
+        }
+
+        success {
+            echo "=========================================="
+            echo "STAGING PIPELINE SUCCESS"
+            echo "=========================================="
+            echo "Deployment completed successfully."
+            echo "Branch: staging"
+            echo "Changed modules: ${env.CHANGED_MODULES ?: 'None'}"
+            echo "=========================================="
+        }
+
+        failure {
+            echo "=========================================="
+            echo "STAGING PIPELINE FAILED"
+            echo "=========================================="
+            echo "One of the CI/CD stages failed."
+            echo "Deployment did not complete successfully."
+            echo "Branch: staging"
+            echo "Changed modules: ${env.CHANGED_MODULES ?: 'None'}"
+            echo ""
+            echo "Check Odoo log:"
+            echo "${ODOO_LOG}"
+            echo "=========================================="
+        }
+    }
+}
