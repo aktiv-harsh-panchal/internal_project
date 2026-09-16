@@ -20,7 +20,6 @@ pipeline {
 
         ODOO_PORT = "8069"
 
-        ODOO_WAS_RUNNING = "false"
     }
 
 
@@ -367,100 +366,37 @@ pipeline {
          * ==========================================
          * STOP ODOO
          * ==========================================
-         *
-         * Jenkins MUST have passwordless sudo
-         * permission for /usr/bin/fuser.
          */
 
         stage('Stop Odoo') {
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
 
             steps {
-
                 echo "=========================================="
-                echo "CHECKING ODOO STATE"
+                echo "STOPPING ODOO"
                 echo "=========================================="
 
-                script {
-                    sh '''
-                        set -e
+                sh '''
+                    set -e
 
-                        echo "Checking whether Odoo is running..."
+                    echo "Stopping Odoo using systemd..."
+                    sudo -n systemctl stop odoo
 
-                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                            echo "Port ${ODOO_PORT} is currently in use."
-                            echo "Odoo is considered running."
-                            echo "true" > "${WORKSPACE}/.odoo_was_running"
-                        else
-                            echo "Port ${ODOO_PORT} is free."
-                            echo "Odoo is not currently running."
-                            echo "false" > "${WORKSPACE}/.odoo_was_running"
-                            echo "Odoo is stopped. Jenkins will keep it stopped after deployment."
-                            exit 0
-                        fi
+                    echo ""
+                    echo "Checking Odoo service state..."
 
-                        echo ""
-                        echo "Checking sudo permission for Jenkins..."
+                    if sudo -n systemctl is-active --quiet odoo; then
+                        echo "ERROR: Odoo service is still running."
+                        sudo -n systemctl status odoo --no-pager || true
+                        exit 1
+                    fi
 
-                        if ! sudo -n -v 2>/dev/null; then
-                            echo "ERROR: Jenkins does not have passwordless sudo permission."
-                            echo "Required permission: /usr/bin/fuser"
-                            exit 1
-                        fi
-
-                        echo ""
-                        echo "Finding process using port ${ODOO_PORT}..."
-                        sudo -n fuser -v ${ODOO_PORT}/tcp || true
-
-                        echo ""
-                        echo "Stopping Odoo temporarily for module upgrade..."
-                        sudo -n fuser -k -TERM ${ODOO_PORT}/tcp
-
-                        echo ""
-                        echo "Waiting for port ${ODOO_PORT} to be released..."
-
-                        for i in $(seq 1 30)
-                        do
-                            if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
-                                echo "Port ${ODOO_PORT} has been released."
-                                break
-                            fi
-
-                            echo "Port still in use... waiting (${i}/30)"
-                            sleep 1
-                        done
-
-                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                            echo "Odoo did not stop gracefully."
-                            echo "Forcing Odoo termination..."
-                            sudo -n fuser -k -KILL ${ODOO_PORT}/tcp
-
-                            echo "Waiting for port ${ODOO_PORT} to be released after forced termination..."
-
-                            for i in $(seq 1 10)
-                            do
-                                if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
-                                    echo "Port ${ODOO_PORT} has been released."
-                                    break
-                                fi
-
-                                echo "Port still in use... waiting (${i}/10)"
-                                sleep 1
-                            done
-
-                            if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                                echo "ERROR: Port ${ODOO_PORT} is still in use after forced termination."
-                                sudo -n fuser -v ${ODOO_PORT}/tcp || true
-                                exit 1
-                            fi
-                        fi
-
-                        echo ""
-                        echo "Odoo was running before deployment and has been stopped temporarily."
-                    '''
-
-                    env.ODOO_WAS_RUNNING = readFile('.odoo_was_running').trim()
-                    echo "Recorded Odoo state before deployment: ${env.ODOO_WAS_RUNNING}"
-                }
+                    echo "Odoo service stopped successfully."
+                '''
             }
         }
 
@@ -571,58 +507,41 @@ pipeline {
          */
 
         stage('Start Odoo') {
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
 
             steps {
-
                 echo "=========================================="
-                echo "RESTORING ODOO STATE"
+                echo "STARTING ODOO"
                 echo "=========================================="
 
                 sh '''
                     set -e
 
-                    if [ "${ODOO_WAS_RUNNING}" != "true" ]; then
-                        echo "Odoo was not running before deployment."
-                        echo "Odoo will remain stopped."
-                        exit 0
-                    fi
-
-                    echo "Odoo was running before deployment."
-                    echo "Starting Odoo again as odoo user..."
-
-                    test -f "${ODOO_BIN}"
-                    test -f "${ODOO_CONFIG}"
-
-                    if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                        echo "Odoo is already running on port ${ODOO_PORT}."
-                    else
-                        echo "Starting Odoo as odoo user..."
-
-                        sudo -n -u odoo sh -c "
-                            nohup '${PYTHON}' '${ODOO_BIN}' \\
-                            -c '${ODOO_CONFIG}' \\
-                            > '${ODOO_LOG}' 2>&1 \\
-                            < /dev/null &
-                        "
-                    fi
+                    echo "Starting Odoo using systemd..."
+                    sudo -n systemctl start odoo
 
                     echo ""
-                    echo "Waiting for Odoo port ${ODOO_PORT}..."
+                    echo "Waiting for Odoo service..."
 
                     for i in $(seq 1 30)
                     do
-                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                            echo "Odoo port ${ODOO_PORT} is listening."
+                        if sudo -n systemctl is-active --quiet odoo; then
+                            echo "Odoo service is active."
                             break
                         fi
 
-                        echo "Waiting for Odoo port... (${i}/30)"
+                        echo "Waiting for Odoo service... (${i}/30)"
                         sleep 1
                     done
 
-                    if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
+                    if ! sudo -n systemctl is-active --quiet odoo; then
                         echo ""
-                        echo "ERROR: Odoo did not start or port ${ODOO_PORT} is not listening."
+                        echo "ERROR: Odoo service failed to start."
+                        sudo -n systemctl status odoo --no-pager || true
                         echo ""
                         echo "Last 100 lines of Odoo log:"
                         tail -100 "${ODOO_LOG}" || true
@@ -630,7 +549,7 @@ pipeline {
                     fi
 
                     echo ""
-                    echo "Odoo has been restored to its previous running state."
+                    echo "Odoo service started successfully."
                 '''
             }
         }
@@ -642,45 +561,33 @@ pipeline {
          */
 
         stage('Odoo Server Check') {
-
             when {
                 expression {
-                    return env.ODOO_WAS_RUNNING == 'true'
+                    return env.CHANGED_MODULES?.trim()
                 }
             }
 
             steps {
-
                 echo "=========================================="
-
                 echo "ODOO SERVER CHECK"
-
                 echo "=========================================="
-
 
                 sh '''
                     set -e
 
-
-                    echo "Checking Odoo process..."
-
-                    pgrep -u odoo -f "${ODOO_BIN}"
-
+                    echo "Checking Odoo systemd service..."
+                    sudo -n systemctl is-active --quiet odoo
+                    echo "Odoo systemd service is active."
 
                     echo ""
-
                     echo "Checking port ${ODOO_PORT}..."
-
                     ss -ltn | grep ":${ODOO_PORT} "
 
-
                     echo ""
-
                     echo "Odoo server is running correctly."
                 '''
             }
         }
-
 
         /*
          * ==========================================
@@ -692,7 +599,7 @@ pipeline {
 
             when {
                 expression {
-                    return env.ODOO_WAS_RUNNING == 'true'
+                    return env.CHANGED_MODULES?.trim()
                 }
             }
 
