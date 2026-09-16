@@ -44,14 +44,17 @@ pipeline {
                     git branch --show-current
 
                     echo ""
+
                     echo "Current commit:"
                     git rev-parse HEAD
 
                     echo ""
+
                     echo "Commit message:"
                     git log -1 --pretty=%B
 
                     echo ""
+
                     echo "Remote:"
                     git remote -v
                 '''
@@ -124,7 +127,6 @@ pipeline {
                     } else {
 
                         echo "No relevant files changed."
-
                     }
 
 
@@ -170,7 +172,6 @@ pipeline {
                     } else {
 
                         echo "No Odoo modules changed."
-
                     }
 
 
@@ -193,7 +194,6 @@ pipeline {
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
-
                 }
             }
 
@@ -213,30 +213,34 @@ pipeline {
 
                     echo "Minimum required Pylint score: ${env.PYLINT_MIN_SCORE}"
 
-x`x`
+
                     sh '''
                         set -e
 
 
                         echo ""
+
                         echo "Python:"
 
                         ${PYTHON} --version
 
 
                         echo ""
+
                         echo "Python executable:"
 
                         ${PYTHON} -c "import sys; print(sys.executable)"
 
 
                         echo ""
+
                         echo "Pylint:"
 
                         ${PYTHON} -m pylint --version
 
 
                         echo ""
+
                         echo "Running Pylint..."
 
                         echo "------------------------------------------"
@@ -271,92 +275,148 @@ x`x`
 
 
         /*
-	 * ==========================================
-	 * DEPLOY CUSTOM ADDONS
-	 * ==========================================
-	 */
+         * ==========================================
+         * DEPLOY CUSTOM ADDONS
+         * ==========================================
+         *
+         * The module is NOT removed first.
+         *
+         * rsync synchronizes the Jenkins workspace
+         * with the Odoo custom addons directory.
+         *
+         * --delete removes files that were deleted
+         * from Git, while keeping the module itself.
+         *
+         * Jenkins uses sudo because the target
+         * directory is owned by the odoo user.
+         */
 
-	stage('Deploy Custom Addons') {
+        stage('Deploy Custom Addons') {
 
-	    when {
-		expression {
-		    return env.CHANGED_MODULES?.trim()
-		}
-	    }
+            when {
 
-	    steps {
+                expression {
 
-		script {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
 
-		    echo "=========================================="
-		    echo "DEPLOYING CUSTOM ADDONS"
-		    echo "=========================================="
 
-		    sh '''
-		        set -e
+            steps {
 
-		        echo "Jenkins workspace:"
-		        pwd
+                script {
 
-		        echo ""
-		        echo "Target directory:"
-		        echo "${SOURCE_DIR}"
+                    echo "=========================================="
+                    echo "DEPLOYING CUSTOM ADDONS"
+                    echo "=========================================="
 
-		        test -d "${SOURCE_DIR}"
 
-		        echo ""
-		        echo "Modules to deploy:"
-		        echo "${CHANGED_MODULES}"
+                    sh '''
+                        set -e
 
-		        for module in ${CHANGED_MODULES}
-		        do
 
-		            echo ""
-		            echo "=========================================="
-		            echo "Deploying module: ${module}"
-		            echo "=========================================="
+                        echo "Jenkins workspace:"
 
-		            if [ ! -d "${module}" ]; then
-		                echo "ERROR: Module ${module} does not exist."
-		                exit 1
-		            fi
+                        pwd
 
-		            echo "Synchronizing module files..."
 
-		            sudo -n rsync -a --delete \
-		                "${module}/" \
-		                "${SOURCE_DIR}/${module}/"
+                        echo ""
 
-		            echo "Fixing ownership..."
+                        echo "Target directory:"
 
-		            sudo -n chown -R odoo:odoo \
-		                "${SOURCE_DIR}/${module}"
+                        echo "${SOURCE_DIR}"
 
-		            echo "Module deployed: ${module}"
 
-		        done
+                        test -d "${SOURCE_DIR}"
 
-		        echo ""
-		        echo "Final permissions:"
-		        echo "------------------------------------------"
 
-		        ls -ld "${SOURCE_DIR}"
+                        echo ""
 
-		        for module in ${CHANGED_MODULES}
-		        do
-		            echo ""
-		            echo "Module: ${module}"
-		            ls -ld "${SOURCE_DIR}/${module}"
-		        done
+                        echo "Modules to deploy:"
 
-		        echo ""
-		        echo "=========================================="
-		        echo "Custom addons deployed successfully."
-		        echo "=========================================="
-		    '''
-		}
-	    }
-	}
+                        echo "${CHANGED_MODULES}"
+
+
+                        for module in ${CHANGED_MODULES}
+                        do
+
+                            echo ""
+
+                            echo "=========================================="
+
+                            echo "Deploying module: ${module}"
+
+                            echo "=========================================="
+
+
+                            if [ ! -d "${module}" ]; then
+
+                                echo "ERROR: Module ${module} does not exist."
+
+                                exit 1
+
+                            fi
+
+
+                            echo "Creating target module directory..."
+
+                            sudo -n mkdir -p "${SOURCE_DIR}/${module}"
+
+
+                            echo "Synchronizing module files..."
+
+                            sudo -n rsync -a \
+                                --delete \
+                                --no-owner \
+                                --no-group \
+                                "${module}/" \
+                                "${SOURCE_DIR}/${module}/"
+
+
+                            echo "Fixing ownership..."
+
+                            sudo -n chown -R odoo:odoo \
+                                "${SOURCE_DIR}/${module}"
+
+
+                            echo "Module deployed successfully: ${module}"
+
+                        done
+
+
+                        echo ""
+
+                        echo "Final permissions:"
+
+                        echo "------------------------------------------"
+
+
+                        ls -ld "${SOURCE_DIR}"
+
+
+                        for module in ${CHANGED_MODULES}
+                        do
+
+                            echo ""
+
+                            echo "Module: ${module}"
+
+                            ls -ld "${SOURCE_DIR}/${module}"
+
+                        done
+
+
+                        echo ""
+
+                        echo "=========================================="
+
+                        echo "Custom addons deployed successfully."
+
+                        echo "=========================================="
+                    '''
+                }
+            }
+        }
 
 
         /*
@@ -499,7 +559,6 @@ x`x`
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
-
                 }
             }
 
