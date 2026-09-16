@@ -413,7 +413,7 @@ pipeline {
 
                         echo ""
                         echo "Stopping Odoo temporarily for module upgrade..."
-                        sudo -n fuser -k ${ODOO_PORT}/tcp
+                        sudo -n fuser -k -TERM ${ODOO_PORT}/tcp
 
                         echo ""
                         echo "Waiting for port ${ODOO_PORT} to be released..."
@@ -430,9 +430,28 @@ pipeline {
                         done
 
                         if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                            echo "ERROR: Port ${ODOO_PORT} is still in use."
-                            sudo -n fuser -v ${ODOO_PORT}/tcp || true
-                            exit 1
+                            echo "Odoo did not stop gracefully."
+                            echo "Forcing Odoo termination..."
+                            sudo -n fuser -k -KILL ${ODOO_PORT}/tcp
+
+                            echo "Waiting for port ${ODOO_PORT} to be released after forced termination..."
+
+                            for i in $(seq 1 10)
+                            do
+                                if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
+                                    echo "Port ${ODOO_PORT} has been released."
+                                    break
+                                fi
+
+                                echo "Port still in use... waiting (${i}/10)"
+                                sleep 1
+                            done
+
+                            if ss -ltn | grep -q ":${ODOO_PORT} "; then
+                                echo "ERROR: Port ${ODOO_PORT} is still in use after forced termination."
+                                sudo -n fuser -v ${ODOO_PORT}/tcp || true
+                                exit 1
+                            fi
                         fi
 
                         echo ""
@@ -574,14 +593,10 @@ pipeline {
                     test -f "${ODOO_BIN}"
                     test -f "${ODOO_CONFIG}"
 
-                    if pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
-                        echo "Odoo is already running."
+                    if ss -ltn | grep -q ":${ODOO_PORT} "; then
+                        echo "Odoo is already running on port ${ODOO_PORT}."
                     else
-                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                            echo "ERROR: Port ${ODOO_PORT} is already in use by another process."
-                            ss -ltnp | grep ":${ODOO_PORT} " || true
-                            exit 1
-                        fi
+                        echo "Starting Odoo as odoo user..."
 
                         sudo -n -u odoo sh -c "
                             nohup '${PYTHON}' '${ODOO_BIN}' \\
@@ -592,35 +607,12 @@ pipeline {
                     fi
 
                     echo ""
-                    echo "Waiting for Odoo process..."
-
-                    for i in $(seq 1 30)
-                    do
-                        if pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
-                            echo "Odoo process started."
-                            break
-                        fi
-
-                        echo "Waiting for Odoo process... (${i}/30)"
-                        sleep 1
-                    done
-
-                    if ! pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
-                        echo ""
-                        echo "ERROR: Odoo process did not start."
-                        echo ""
-                        echo "Last 100 lines of Odoo log:"
-                        tail -100 "${ODOO_LOG}" || true
-                        exit 1
-                    fi
-
-                    echo ""
-                    echo "Waiting for port ${ODOO_PORT}..."
+                    echo "Waiting for Odoo port ${ODOO_PORT}..."
 
                     for i in $(seq 1 30)
                     do
                         if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                            echo "Port ${ODOO_PORT} is listening."
+                            echo "Odoo port ${ODOO_PORT} is listening."
                             break
                         fi
 
@@ -630,7 +622,7 @@ pipeline {
 
                     if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
                         echo ""
-                        echo "ERROR: Odoo process is running but port ${ODOO_PORT} is not listening."
+                        echo "ERROR: Odoo did not start or port ${ODOO_PORT} is not listening."
                         echo ""
                         echo "Last 100 lines of Odoo log:"
                         tail -100 "${ODOO_LOG}" || true
