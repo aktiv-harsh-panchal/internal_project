@@ -386,19 +386,14 @@ pipeline {
 
                         echo "Checking whether Odoo is running..."
 
-                        if pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
-                            echo "Odoo is currently running."
+                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
+                            echo "Port ${ODOO_PORT} is currently in use."
+                            echo "Odoo is considered running."
                             echo "true" > "${WORKSPACE}/.odoo_was_running"
                         else
+                            echo "Port ${ODOO_PORT} is free."
                             echo "Odoo is not currently running."
                             echo "false" > "${WORKSPACE}/.odoo_was_running"
-
-                            if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                                echo "ERROR: Port ${ODOO_PORT} is in use, but the running process is not the configured Odoo process."
-                                ss -ltnp | grep ":${ODOO_PORT} " || true
-                                exit 1
-                            fi
-
                             echo "Odoo is stopped. Jenkins will keep it stopped after deployment."
                             exit 0
                         fi
@@ -413,7 +408,7 @@ pipeline {
                         fi
 
                         echo ""
-                        echo "Finding Odoo process..."
+                        echo "Finding process using port ${ODOO_PORT}..."
                         sudo -n fuser -v ${ODOO_PORT}/tcp || true
 
                         echo ""
