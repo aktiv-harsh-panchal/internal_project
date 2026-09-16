@@ -271,95 +271,95 @@ pipeline {
 
 
         /*
-	 * ==========================================
-	 * DEPLOY CUSTOM ADDONS
-	 * ==========================================
-	 */
+         * ==========================================
+         * DEPLOY CUSTOM ADDONS
+         * ==========================================
+         */
 
-	stage('Deploy Custom Addons') {
+        stage('Deploy Custom Addons') {
 
-	    when {
-		expression {
-		    return env.CHANGED_MODULES?.trim()
-		}
-	    }
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
 
-	    steps {
+            steps {
 
-		script {
+                script {
 
-		    echo "=========================================="
-		    echo "DEPLOYING CUSTOM ADDONS"
-		    echo "=========================================="
+                    echo "=========================================="
+                    echo "DEPLOYING CUSTOM ADDONS"
+                    echo "=========================================="
 
-		    sh '''
-		        set -e
+                    sh '''
+                        set -e
 
-		        echo "Jenkins workspace:"
-		        pwd
+                        echo "Jenkins workspace:"
+                        pwd
 
-		        echo ""
-		        echo "Target directory:"
-		        echo "${SOURCE_DIR}"
+                        echo ""
+                        echo "Target directory:"
+                        echo "${SOURCE_DIR}"
 
-		        test -d "${SOURCE_DIR}"
+                        test -d "${SOURCE_DIR}"
 
-		        echo ""
-		        echo "Modules to deploy:"
-		        echo "${CHANGED_MODULES}"
+                        echo ""
+                        echo "Modules to deploy:"
+                        echo "${CHANGED_MODULES}"
 
-		        for module in ${CHANGED_MODULES}
-		        do
+                        for module in ${CHANGED_MODULES}
+                        do
 
-		            echo ""
-		            echo "=========================================="
-		            echo "Deploying module: ${module}"
-		            echo "=========================================="
+                            echo ""
+                            echo "=========================================="
+                            echo "Deploying module: ${module}"
+                            echo "=========================================="
 
-		            if [ ! -d "${module}" ]; then
-		                echo "ERROR: Module ${module} does not exist."
-		                exit 1
-		            fi
+                            if [ ! -d "${module}" ]; then
+                                echo "ERROR: Module ${module} does not exist."
+                                exit 1
+                            fi
 
-		            echo "Synchronizing module files..."
+                            echo "Synchronizing module files..."
 
-		            sudo -n -u odoo rsync -a \
-		                --delete \
-		                --no-owner \
-		                --no-group \
-		                "${module}/" \
-		                "${SOURCE_DIR}/${module}/"
+                            sudo -n -u odoo rsync -a \
+                                --delete \
+                                --no-owner \
+                                --no-group \
+                                "${module}/" \
+                                "${SOURCE_DIR}/${module}/"
 
-		            echo "Fixing ownership..."
+                            echo "Fixing ownership..."
 
-		            sudo -n chown -R odoo:odoo \
-		                "${SOURCE_DIR}/${module}"
+                            sudo -n chown -R odoo:odoo \
+                                "${SOURCE_DIR}/${module}"
 
-		            echo "Module deployed: ${module}"
+                            echo "Module deployed: ${module}"
 
-		        done
+                        done
 
-		        echo ""
-		        echo "Final permissions:"
-		        echo "------------------------------------------"
+                        echo ""
+                        echo "Final permissions:"
+                        echo "------------------------------------------"
 
-		        ls -ld "${SOURCE_DIR}"
+                        ls -ld "${SOURCE_DIR}"
 
-		        for module in ${CHANGED_MODULES}
-		        do
-		            echo ""
-		            echo "Module: ${module}"
-		            ls -ld "${SOURCE_DIR}/${module}"
-		        done
+                        for module in ${CHANGED_MODULES}
+                        do
+                            echo ""
+                            echo "Module: ${module}"
+                            ls -ld "${SOURCE_DIR}/${module}"
+                        done
 
-		        echo ""
-		        echo "=========================================="
-		        echo "Custom addons deployed successfully."
-		        echo "=========================================="
-		    '''
-		}
-	    }
-	}
+                        echo ""
+                        echo "=========================================="
+                        echo "Custom addons deployed successfully."
+                        echo "=========================================="
+                    '''
+                }
+            }
+        }
 
 
         /*
@@ -369,6 +369,7 @@ pipeline {
          */
 
         stage('Stop Odoo') {
+
             when {
                 expression {
                     return env.CHANGED_MODULES?.trim()
@@ -376,6 +377,7 @@ pipeline {
             }
 
             steps {
+
                 echo "=========================================="
                 echo "STOPPING ODOO"
                 echo "=========================================="
@@ -384,6 +386,7 @@ pipeline {
                     set -e
 
                     echo "Stopping Odoo using systemd..."
+
                     sudo -n systemctl stop odoo
 
                     echo ""
@@ -399,6 +402,7 @@ pipeline {
                 '''
             }
         }
+
 
         /*
          * ==========================================
@@ -507,6 +511,7 @@ pipeline {
          */
 
         stage('Start Odoo') {
+
             when {
                 expression {
                     return env.CHANGED_MODULES?.trim()
@@ -514,6 +519,7 @@ pipeline {
             }
 
             steps {
+
                 echo "=========================================="
                 echo "STARTING ODOO"
                 echo "=========================================="
@@ -522,6 +528,7 @@ pipeline {
                     set -e
 
                     echo "Starting Odoo using systemd..."
+
                     sudo -n systemctl start odoo
 
                     echo ""
@@ -541,10 +548,14 @@ pipeline {
                     if ! sudo -n systemctl is-active --quiet odoo; then
                         echo ""
                         echo "ERROR: Odoo service failed to start."
+
                         sudo -n systemctl status odoo --no-pager || true
+
                         echo ""
                         echo "Last 100 lines of Odoo log:"
+
                         tail -100 "${ODOO_LOG}" || true
+
                         exit 1
                     fi
 
@@ -554,6 +565,7 @@ pipeline {
             }
         }
 
+
         /*
          * ==========================================
          * ODOO SERVER CHECK
@@ -561,6 +573,7 @@ pipeline {
          */
 
         stage('Odoo Server Check') {
+
             when {
                 expression {
                     return env.CHANGED_MODULES?.trim()
@@ -568,6 +581,7 @@ pipeline {
             }
 
             steps {
+
                 echo "=========================================="
                 echo "ODOO SERVER CHECK"
                 echo "=========================================="
@@ -576,18 +590,59 @@ pipeline {
                     set -e
 
                     echo "Checking Odoo systemd service..."
+
                     sudo -n systemctl is-active --quiet odoo
+
                     echo "Odoo systemd service is active."
 
                     echo ""
-                    echo "Checking port ${ODOO_PORT}..."
-                    ss -ltn | grep ":${ODOO_PORT} "
+                    echo "Waiting for Odoo port ${ODOO_PORT}..."
+
+                    for i in $(seq 1 30)
+                    do
+
+                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
+
+                            echo "Odoo port ${ODOO_PORT} is listening."
+
+                            break
+
+                        fi
+
+                        echo "Waiting for Odoo port... (${i}/30)"
+
+                        sleep 1
+
+                    done
+
+
+                    if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
+
+                        echo ""
+                        echo "ERROR: Odoo service is active but port ${ODOO_PORT} is not listening."
+
+                        echo ""
+
+                        sudo -n systemctl status odoo --no-pager || true
+
+                        echo ""
+
+                        echo "Last 100 lines of Odoo log:"
+
+                        tail -100 "${ODOO_LOG}" || true
+
+                        exit 1
+
+                    fi
+
 
                     echo ""
+
                     echo "Odoo server is running correctly."
                 '''
             }
         }
+
 
         /*
          * ==========================================
@@ -598,8 +653,11 @@ pipeline {
         stage('Odoo Health Check') {
 
             when {
+
                 expression {
+
                     return env.CHANGED_MODULES?.trim()
+
                 }
             }
 
