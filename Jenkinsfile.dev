@@ -19,6 +19,8 @@ pipeline {
         PYLINT_MIN_SCORE = "3.0"
 
         ODOO_PORT = "8069"
+
+        ODOO_WAS_RUNNING = "false"
     }
 
 
@@ -44,17 +46,14 @@ pipeline {
                     git branch --show-current
 
                     echo ""
-
                     echo "Current commit:"
                     git rev-parse HEAD
 
                     echo ""
-
                     echo "Commit message:"
                     git log -1 --pretty=%B
 
                     echo ""
-
                     echo "Remote:"
                     git remote -v
                 '''
@@ -127,6 +126,7 @@ pipeline {
                     } else {
 
                         echo "No relevant files changed."
+
                     }
 
 
@@ -172,6 +172,7 @@ pipeline {
                     } else {
 
                         echo "No Odoo modules changed."
+
                     }
 
 
@@ -194,6 +195,7 @@ pipeline {
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
+
                 }
             }
 
@@ -213,34 +215,29 @@ pipeline {
 
                     echo "Minimum required Pylint score: ${env.PYLINT_MIN_SCORE}"
 
-
                     sh '''
                         set -e
 
 
                         echo ""
-
                         echo "Python:"
 
                         ${PYTHON} --version
 
 
                         echo ""
-
                         echo "Python executable:"
 
                         ${PYTHON} -c "import sys; print(sys.executable)"
 
 
                         echo ""
-
                         echo "Pylint:"
 
                         ${PYTHON} -m pylint --version
 
 
                         echo ""
-
                         echo "Running Pylint..."
 
                         echo "------------------------------------------"
@@ -275,143 +272,95 @@ pipeline {
 
 
         /*
-         * ==========================================
-         * DEPLOY CUSTOM ADDONS
-         * ==========================================
-         *
-         * The module is NOT removed first.
-         *
-         * rsync synchronizes the Jenkins workspace
-         * with the Odoo custom addons directory.
-         *
-         * --delete removes files that were deleted
-         * from Git, while keeping the module itself.
-         *
-         * Jenkins uses sudo because the target
-         * directory is owned by the odoo user.
-         */
+	 * ==========================================
+	 * DEPLOY CUSTOM ADDONS
+	 * ==========================================
+	 */
 
-        stage('Deploy Custom Addons') {
+	stage('Deploy Custom Addons') {
 
-            when {
+	    when {
+		expression {
+		    return env.CHANGED_MODULES?.trim()
+		}
+	    }
 
-                expression {
+	    steps {
 
-                    return env.CHANGED_MODULES?.trim()
-                }
-            }
+		script {
 
+		    echo "=========================================="
+		    echo "DEPLOYING CUSTOM ADDONS"
+		    echo "=========================================="
 
-            steps {
+		    sh '''
+		        set -e
 
-                script {
+		        echo "Jenkins workspace:"
+		        pwd
 
-                    echo "=========================================="
-                    echo "DEPLOYING CUSTOM ADDONS"
-                    echo "=========================================="
+		        echo ""
+		        echo "Target directory:"
+		        echo "${SOURCE_DIR}"
 
+		        test -d "${SOURCE_DIR}"
 
-                    sh '''
-                        set -e
+		        echo ""
+		        echo "Modules to deploy:"
+		        echo "${CHANGED_MODULES}"
 
+		        for module in ${CHANGED_MODULES}
+		        do
 
-                        echo "Jenkins workspace:"
+		            echo ""
+		            echo "=========================================="
+		            echo "Deploying module: ${module}"
+		            echo "=========================================="
 
-                        pwd
+		            if [ ! -d "${module}" ]; then
+		                echo "ERROR: Module ${module} does not exist."
+		                exit 1
+		            fi
 
+		            echo "Synchronizing module files..."
 
-                        echo ""
+		            sudo -n -u odoo rsync -a \
+		                --delete \
+		                --no-owner \
+		                --no-group \
+		                "${module}/" \
+		                "${SOURCE_DIR}/${module}/"
 
-                        echo "Target directory:"
+		            echo "Fixing ownership..."
 
-                        echo "${SOURCE_DIR}"
+		            sudo -n chown -R odoo:odoo \
+		                "${SOURCE_DIR}/${module}"
 
+		            echo "Module deployed: ${module}"
 
-                        test -d "${SOURCE_DIR}"
+		        done
 
+		        echo ""
+		        echo "Final permissions:"
+		        echo "------------------------------------------"
 
-                        echo ""
+		        ls -ld "${SOURCE_DIR}"
 
-                        echo "Modules to deploy:"
+		        for module in ${CHANGED_MODULES}
+		        do
+		            echo ""
+		            echo "Module: ${module}"
+		            ls -ld "${SOURCE_DIR}/${module}"
+		        done
 
-                        echo "${CHANGED_MODULES}"
-
-
-                        for module in ${CHANGED_MODULES}
-                        do
-
-                            echo ""
-
-                            echo "=========================================="
-
-                            echo "Deploying module: ${module}"
-
-                            echo "=========================================="
-
-
-                            if [ ! -d "${module}" ]; then
-
-                                echo "ERROR: Module ${module} does not exist."
-
-                                exit 1
-
-                            fi
-
-
-			    echo "Synchronizing module files..."
-
-			    sudo -n -u odoo rsync -a \
-			        --delete \
-			        --no-owner \
-			        --no-group \
-			        "${module}/" \
-			        "${SOURCE_DIR}/${module}/"
-
-
-                            echo "Fixing ownership..."
-
-                            sudo -n chown -R odoo:odoo \
-                                "${SOURCE_DIR}/${module}"
-
-
-                            echo "Module deployed successfully: ${module}"
-
-                        done
-
-
-                        echo ""
-
-                        echo "Final permissions:"
-
-                        echo "------------------------------------------"
-
-
-                        ls -ld "${SOURCE_DIR}"
-
-
-                        for module in ${CHANGED_MODULES}
-                        do
-
-                            echo ""
-
-                            echo "Module: ${module}"
-
-                            ls -ld "${SOURCE_DIR}/${module}"
-
-                        done
-
-
-                        echo ""
-
-                        echo "=========================================="
-
-                        echo "Custom addons deployed successfully."
-
-                        echo "=========================================="
-                    '''
-                }
-            }
-        }
+		        echo ""
+		        echo "=========================================="
+		        echo "Custom addons deployed successfully."
+		        echo "=========================================="
+		    '''
+		}
+	    }
+	}
 
 
         /*
@@ -428,118 +377,78 @@ pipeline {
             steps {
 
                 echo "=========================================="
-
-                echo "STOPPING ODOO"
-
+                echo "CHECKING ODOO STATE"
                 echo "=========================================="
 
+                script {
+                    sh '''
+                        set -e
 
-                sh '''
-                    set -e
+                        echo "Checking whether Odoo is running..."
 
+                        if pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
+                            echo "Odoo is currently running."
+                            echo "true" > "${WORKSPACE}/.odoo_was_running"
+                        else
+                            echo "Odoo is not currently running."
+                            echo "false" > "${WORKSPACE}/.odoo_was_running"
 
-                    echo "Checking port ${ODOO_PORT}..."
+                            if ss -ltn | grep -q ":${ODOO_PORT} "; then
+                                echo "ERROR: Port ${ODOO_PORT} is in use, but the running process is not the configured Odoo process."
+                                ss -ltnp | grep ":${ODOO_PORT} " || true
+                                exit 1
+                            fi
 
-
-                    if ss -ltn | grep -q ":${ODOO_PORT} "; then
-
-                        echo "Port ${ODOO_PORT} is currently in use."
-
-
-                        echo ""
-
-                        echo "Checking sudo permission for Jenkins..."
-
-
-                        if ! sudo -n -v 2>/dev/null; then
-
-                            echo "ERROR: Jenkins does not have passwordless sudo permission."
-
-                            echo ""
-
-                            echo "Please configure sudoers for Jenkins."
-
-                            echo "Required permission: /usr/bin/fuser"
-
-                            exit 1
-
+                            echo "Odoo is stopped. Jenkins will keep it stopped after deployment."
+                            exit 0
                         fi
 
+                        echo ""
+                        echo "Checking sudo permission for Jenkins..."
+
+                        if ! sudo -n -v 2>/dev/null; then
+                            echo "ERROR: Jenkins does not have passwordless sudo permission."
+                            echo "Required permission: /usr/bin/fuser"
+                            exit 1
+                        fi
 
                         echo ""
-
-                        echo "Finding process..."
-
+                        echo "Finding Odoo process..."
                         sudo -n fuser -v ${ODOO_PORT}/tcp || true
 
-
                         echo ""
-
-                        echo "Stopping Odoo process..."
-
+                        echo "Stopping Odoo temporarily for module upgrade..."
                         sudo -n fuser -k ${ODOO_PORT}/tcp
 
-
                         echo ""
-
                         echo "Waiting for port ${ODOO_PORT} to be released..."
-
 
                         for i in $(seq 1 30)
                         do
-
                             if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
-
                                 echo "Port ${ODOO_PORT} has been released."
-
                                 break
-
                             fi
 
-
                             echo "Port still in use... waiting (${i}/30)"
-
                             sleep 1
-
                         done
 
-
-                    else
-
-                        echo "Port ${ODOO_PORT} is already free."
-
-                    fi
-
-
-                    echo ""
-
-                    echo "Final port check..."
-
-
-                    if ss -ltn | grep -q ":${ODOO_PORT} "; then
-
-                        echo "ERROR: Port ${ODOO_PORT} is still in use."
+                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
+                            echo "ERROR: Port ${ODOO_PORT} is still in use."
+                            sudo -n fuser -v ${ODOO_PORT}/tcp || true
+                            exit 1
+                        fi
 
                         echo ""
+                        echo "Odoo was running before deployment and has been stopped temporarily."
+                    '''
 
-                        sudo -n fuser -v ${ODOO_PORT}/tcp || true
-
-                        exit 1
-
-                    fi
-
-
-                    echo ""
-
-                    echo "=========================================="
-
-                    echo "Odoo stopped successfully."
-
-                    echo "=========================================="
-                '''
+                    env.ODOO_WAS_RUNNING = readFile('.odoo_was_running').trim()
+                    echo "Recorded Odoo state before deployment: ${env.ODOO_WAS_RUNNING}"
+                }
             }
         }
-
 
         /*
          * ==========================================
@@ -554,6 +463,7 @@ pipeline {
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
+
                 }
             }
 
@@ -651,195 +561,92 @@ pipeline {
             steps {
 
                 echo "=========================================="
-
-                echo "STARTING ODOO"
-
+                echo "RESTORING ODOO STATE"
                 echo "=========================================="
-
 
                 sh '''
                     set -e
 
+                    if [ "${ODOO_WAS_RUNNING}" != "true" ]; then
+                        echo "Odoo was not running before deployment."
+                        echo "Odoo will remain stopped."
+                        exit 0
+                    fi
 
-                    echo "Python:"
-
-                    echo "${PYTHON}"
-
-
-                    echo ""
-
-                    echo "Odoo binary:"
-
-                    echo "${ODOO_BIN}"
-
-
-                    echo ""
-
-                    echo "Odoo config:"
-
-                    echo "${ODOO_CONFIG}"
-
+                    echo "Odoo was running before deployment."
+                    echo "Starting Odoo again as odoo user..."
 
                     test -f "${ODOO_BIN}"
-
                     test -f "${ODOO_CONFIG}"
 
-
-                    echo ""
-
-                    echo "Checking if Odoo is already running..."
-
-
-                    EXISTING_PIDS=$(pgrep -u odoo -f "${ODOO_BIN}" || true)
-
-
-                    if [ -n "${EXISTING_PIDS}" ]; then
-
-                        echo "Odoo is already running:"
-
-                        echo "${EXISTING_PIDS}"
-
+                    if pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
+                        echo "Odoo is already running."
                     else
-
-                        echo "Odoo is not running."
-
-
-                        echo ""
-
-                        echo "Checking port ${ODOO_PORT}..."
-
-
                         if ss -ltn | grep -q ":${ODOO_PORT} "; then
-
-                            echo "ERROR: Port ${ODOO_PORT} is already in use."
-
+                            echo "ERROR: Port ${ODOO_PORT} is already in use by another process."
                             ss -ltnp | grep ":${ODOO_PORT} " || true
-
                             exit 1
-
                         fi
-
-
-                        echo ""
-
-                        echo "Starting Odoo as odoo user..."
-
 
                         sudo -n -u odoo sh -c "
-                            nohup '${PYTHON}' '${ODOO_BIN}' \
-                            -c '${ODOO_CONFIG}' \
-                            > '${ODOO_LOG}' 2>&1 \
+                            nohup '${PYTHON}' '${ODOO_BIN}' \\
+                            -c '${ODOO_CONFIG}' \\
+                            > '${ODOO_LOG}' 2>&1 \\
                             < /dev/null &
                         "
-
                     fi
 
-
                     echo ""
-
                     echo "Waiting for Odoo process..."
 
-
                     for i in $(seq 1 30)
                     do
-
                         if pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
-
                             echo "Odoo process started."
-
                             break
-
                         fi
-
 
                         echo "Waiting for Odoo process... (${i}/30)"
-
                         sleep 1
-
                     done
 
-
                     if ! pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
-
                         echo ""
-
                         echo "ERROR: Odoo process did not start."
-
-
                         echo ""
-
                         echo "Last 100 lines of Odoo log:"
-
-                        echo "------------------------------------------"
-
-
                         tail -100 "${ODOO_LOG}" || true
-
-
                         exit 1
-
                     fi
 
-
                     echo ""
-
-                    echo "Odoo process is running."
-
-
-                    echo ""
-
                     echo "Waiting for port ${ODOO_PORT}..."
-
 
                     for i in $(seq 1 30)
                     do
-
                         if ss -ltn | grep -q ":${ODOO_PORT} "; then
-
                             echo "Port ${ODOO_PORT} is listening."
-
                             break
-
                         fi
 
-
-                        echo "Waiting for port ${ODOO_PORT}... (${i}/30)"
-
+                        echo "Waiting for Odoo port... (${i}/30)"
                         sleep 1
-
                     done
 
-
                     if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
-
                         echo ""
-
                         echo "ERROR: Odoo process is running but port ${ODOO_PORT} is not listening."
-
-
                         echo ""
-
-                        echo "Odoo log:"
-
+                        echo "Last 100 lines of Odoo log:"
                         tail -100 "${ODOO_LOG}" || true
-
-
                         exit 1
-
                     fi
 
-
                     echo ""
-
-                    echo "=========================================="
-
-                    echo "Odoo started successfully."
-
-                    echo "=========================================="
+                    echo "Odoo has been restored to its previous running state."
                 '''
             }
         }
-
 
         /*
          * ==========================================
@@ -848,6 +655,12 @@ pipeline {
          */
 
         stage('Odoo Server Check') {
+
+            when {
+                expression {
+                    return env.ODOO_WAS_RUNNING == 'true'
+                }
+            }
 
             steps {
 
@@ -889,6 +702,12 @@ pipeline {
          */
 
         stage('Odoo Health Check') {
+
+            when {
+                expression {
+                    return env.ODOO_WAS_RUNNING == 'true'
+                }
+            }
 
             steps {
 
