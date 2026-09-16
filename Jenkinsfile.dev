@@ -213,7 +213,7 @@ pipeline {
 
                     echo "Minimum required Pylint score: ${env.PYLINT_MIN_SCORE}"
 
-
+x`x`
                     sh '''
                         set -e
 
@@ -271,140 +271,92 @@ pipeline {
 
 
         /*
-         * ==========================================
-         * DEPLOY CUSTOM ADDONS
-         * ==========================================
-         */
+	 * ==========================================
+	 * DEPLOY CUSTOM ADDONS
+	 * ==========================================
+	 */
 
-        stage('Deploy Custom Addons') {
+	stage('Deploy Custom Addons') {
 
-            when {
+	    when {
+		expression {
+		    return env.CHANGED_MODULES?.trim()
+		}
+	    }
 
-                expression {
+	    steps {
 
-                    return env.CHANGED_MODULES?.trim()
+		script {
 
-                }
-            }
+		    echo "=========================================="
+		    echo "DEPLOYING CUSTOM ADDONS"
+		    echo "=========================================="
 
+		    sh '''
+		        set -e
 
-            steps {
+		        echo "Jenkins workspace:"
+		        pwd
 
-                script {
+		        echo ""
+		        echo "Target directory:"
+		        echo "${SOURCE_DIR}"
 
-                    echo "=========================================="
+		        test -d "${SOURCE_DIR}"
 
-                    echo "DEPLOYING CUSTOM ADDONS"
+		        echo ""
+		        echo "Modules to deploy:"
+		        echo "${CHANGED_MODULES}"
 
-                    echo "=========================================="
+		        for module in ${CHANGED_MODULES}
+		        do
 
+		            echo ""
+		            echo "=========================================="
+		            echo "Deploying module: ${module}"
+		            echo "=========================================="
 
-                    sh '''
-                        set -e
+		            if [ ! -d "${module}" ]; then
+		                echo "ERROR: Module ${module} does not exist."
+		                exit 1
+		            fi
 
+		            echo "Synchronizing module files..."
 
-                        echo "Jenkins workspace:"
+		            sudo -n rsync -a --delete \
+		                "${module}/" \
+		                "${SOURCE_DIR}/${module}/"
 
-                        pwd
+		            echo "Fixing ownership..."
 
+		            sudo -n chown -R odoo:odoo \
+		                "${SOURCE_DIR}/${module}"
 
-                        echo ""
+		            echo "Module deployed: ${module}"
 
-                        echo "Target directory:"
+		        done
 
-                        echo "${SOURCE_DIR}"
+		        echo ""
+		        echo "Final permissions:"
+		        echo "------------------------------------------"
 
+		        ls -ld "${SOURCE_DIR}"
 
-                        test -d "${SOURCE_DIR}"
+		        for module in ${CHANGED_MODULES}
+		        do
+		            echo ""
+		            echo "Module: ${module}"
+		            ls -ld "${SOURCE_DIR}/${module}"
+		        done
 
-
-                        echo ""
-
-                        echo "Modules to deploy:"
-
-                        echo "${CHANGED_MODULES}"
-
-
-                        for module in ${CHANGED_MODULES}
-                        do
-
-                            echo ""
-
-                            echo "=========================================="
-
-                            echo "Deploying module: ${module}"
-
-                            echo "=========================================="
-
-
-                            if [ ! -d "${module}" ]; then
-
-                                echo "ERROR: Module ${module} does not exist."
-
-                                exit 1
-
-                            fi
-
-
-                            echo "Removing old module..."
-
-                            rm -rf "${SOURCE_DIR}/${module}"
-
-
-                            echo "Copying new module..."
-
-                            cp -a "${module}" "${SOURCE_DIR}/"
-
-                        done
-
-
-                        echo ""
-
-                        echo "Fixing ownership..."
-
-                        sudo -n chown -R odoo:odoo "${SOURCE_DIR}"
-
-
-                        echo ""
-
-                        echo "Fixing permissions..."
-
-                        sudo -n chmod -R 777 "${SOURCE_DIR}"
-
-
-                        echo ""
-
-                        echo "Final permissions:"
-
-                        echo "------------------------------------------"
-
-
-                        ls -ld "${SOURCE_DIR}"
-
-
-                        for module in ${CHANGED_MODULES}
-                        do
-
-                            echo ""
-
-                            echo "Module: ${module}"
-
-                            ls -ld "${SOURCE_DIR}/${module}"
-
-                        done
-
-
-                        echo ""
-
-                        echo "=========================================="
-
-                        echo "Custom addons deployed successfully."
-
-                        echo "=========================================="
-                    '''
-                }
-            }
-        }
+		        echo ""
+		        echo "=========================================="
+		        echo "Custom addons deployed successfully."
+		        echo "=========================================="
+		    '''
+		}
+	    }
+	}
 
 
         /*
