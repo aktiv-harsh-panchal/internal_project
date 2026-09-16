@@ -360,7 +360,7 @@ pipeline {
 
 			    echo "Synchronizing module files..."
 
-			    sudo -n rsync -a \
+			    sudo -n -u odoo rsync -a \
 			        --delete \
 			        --no-owner \
 			        --no-group \
