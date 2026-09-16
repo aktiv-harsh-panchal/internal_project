@@ -358,19 +358,14 @@ pipeline {
                             fi
 
 
-                            echo "Creating target module directory..."
+			    echo "Synchronizing module files..."
 
-                            sudo -n mkdir -p "${SOURCE_DIR}/${module}"
-
-
-                            echo "Synchronizing module files..."
-
-                            sudo -n rsync -a \
-                                --delete \
-                                --no-owner \
-                                --no-group \
-                                "${module}/" \
-                                "${SOURCE_DIR}/${module}/"
+			    sudo -n rsync -a \
+			        --delete \
+			        --no-owner \
+			        --no-group \
+			        "${module}/" \
+			        "${SOURCE_DIR}/${module}/"
 
 
                             echo "Fixing ownership..."
