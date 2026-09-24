@@ -120,7 +120,7 @@ pipeline {
 
                     if (changedFiles) {
 
-                        echo changedFiles
+                        echo changedFiles you
 
                     } else {
 
@@ -268,6 +268,65 @@ pipeline {
                 }
             }
         }
+        
+        /*
+	 * ==========================================
+	 * FLAKE8
+	 * ==========================================
+	 */
+
+	stage('Flake8 Check') {
+
+	    when {
+		expression {
+		    return env.CHANGED_MODULES?.trim()
+		}
+	    }
+
+	    steps {
+
+		script {
+
+		    echo "=========================================="
+		    echo "FLAKE8 CHECK"
+		    echo "=========================================="
+
+		    echo "Changed modules: ${env.CHANGED_MODULES}"
+
+		    sh '''
+		        set -e
+
+		        echo ""
+		        echo "Python:"
+		        ${PYTHON} --version
+
+		        echo ""
+		        echo "Flake8:"
+		        ${PYTHON} -m flake8 --version
+
+		        echo ""
+		        echo "Running Flake8..."
+		        echo "------------------------------------------"
+
+		        for module in ${CHANGED_MODULES}
+		        do
+
+		            echo ""
+		            echo "Checking module: ${module}"
+
+		            ${PYTHON} -m flake8 \
+		                ${module}
+
+		        done
+
+		        echo ""
+		        echo "=========================================="
+		        echo "Flake8 check passed."
+		        echo "=========================================="
+		    '''
+		}
+	    }
+	}
 
 
         /*
