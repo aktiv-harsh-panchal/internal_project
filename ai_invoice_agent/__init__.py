@@ -1,2 +1,3 @@
-"""AI Agent inoice Module"""
-from . import models
+"""AI Invoice Agent module."""
+
+from . import models  # noqa: F401

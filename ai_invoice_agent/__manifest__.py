@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "AI Invoice Agent",
-    "version": "19.0.1.1.2",
+    "version": "19.0.1.1.3",
     "category": "Accounting",
     "summary": "AI powered overdue invoice reminder automation",
     "depends": ["account", "mail"],
@@ -12,7 +12,7 @@
         "views/res_config_settings_views.xml",
         "views/ai_overdue_invoice_log_views.xml",
     ],
-    "installable": True,    
+    "installable": True,
     "application": True,
     "license": "LGPL-3",
 }
