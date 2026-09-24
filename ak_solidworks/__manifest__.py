@@ -1,6 +1,6 @@
 {
     'name': 'SolidWorks CAD Integration',
-    'version': '19.0.1.0.2',
+    'version': '19.0.1.0.3',
     'summary': 'Collect data from SolidWorks CAD Server via JSON',
     'description': """
         Features:
