@@ -120,7 +120,7 @@ pipeline {
 
                     if (changedFiles) {
 
-                        echo changedFiles you
+                        echo changedFiles
 
                     } else {
 
