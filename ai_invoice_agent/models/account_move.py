@@ -74,7 +74,7 @@ class AccountMove(models.Model):  # pylint: disable=too-few-public-methods
         model = self._ai_invoice_get_param("model")
 
         if not api_key:
-            raise ValueError(_("AI API Key is not configured."))
+            raise ValueError(_("AI API Key is not configured. AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"))
         if not api_url:
             raise ValueError(_("AI API URL is not configured."))
         if not model:
