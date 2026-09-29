@@ -56,6 +56,26 @@ pipeline {
                     echo "Remote:"
                     git remote -v
                 '''
+
+                script {
+                    def gitRemote = sh(
+                        script: 'git config --get remote.origin.url',
+                        returnStdout: true
+                    ).trim()
+
+                    if (gitRemote) {
+                        def githubRepo = gitRemote
+                            .replaceFirst(/^git@github\.com:/, 'https://github.com/')
+                            .replaceFirst(/^https?:\/\/github\.com\//, 'https://github.com/')
+                            .replaceFirst(/\.git$/, '')
+
+                        env.GITHUB_COMMIT_URL = "${githubRepo}/commit/${env.GIT_COMMIT}"
+                    } else {
+                        env.GITHUB_COMMIT_URL = ''
+                    }
+
+                    echo "GitHub commit URL: ${env.GITHUB_COMMIT_URL ?: 'Not available'}"
+                }
             }
         }
 
@@ -792,132 +812,118 @@ pipeline {
     post {
 
         always {
-
             echo "=========================================="
-
             echo "PIPELINE FINISHED"
-
             echo "=========================================="
         }
 
-
         success {
-
             echo "=========================================="
-
             echo "          PIPELINE SUCCESS"
-
             echo "=========================================="
-
 
             echo "Deployment completed successfully."
-
             echo "Changed modules: ${env.CHANGED_MODULES ?: 'None'}"
-
-
             echo "Sending successful build notification email..."
 
             emailext(
-                to: "harsh.panchal@aktivsoftware.com",
                 recipientProviders: [developers()],
                 subject: "[Jenkins] SUCCESS - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """Hello,
+                mimeType: 'text/html',
+                body: """
+<html>
+<body>
+<p>Hello,</p>
 
-The Jenkins pipeline has completed successfully.
+<p>The Jenkins pipeline has completed successfully.</p>
 
-Build Status: SUCCESS
-Job: ${env.JOB_NAME}
-Build Number: #${env.BUILD_NUMBER}
-Branch: ${env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'Unknown'}
-Commit: ${env.GIT_COMMIT ?: 'Unknown'}
-Changed Modules: ${env.CHANGED_MODULES ?: 'None'}
+<table>
+<tr><td><b>Build Status:</b></td><td>SUCCESS</td></tr>
+<tr><td><b>Job:</b></td><td>${env.JOB_NAME}</td></tr>
+<tr><td><b>Build Number:</b></td><td>#${env.BUILD_NUMBER}</td></tr>
+<tr><td><b>Branch:</b></td><td>${env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'Unknown'}</td></tr>
+<tr><td><b>Commit:</b></td><td>${env.GIT_COMMIT ?: 'Unknown'}</td></tr>
+<tr><td><b>Changed Modules:</b></td><td>${env.CHANGED_MODULES ?: 'None'}</td></tr>
+</table>
 
-The Odoo custom addons were deployed and the Odoo server health check completed successfully.
+<p>The Odoo custom addons were deployed and the Odoo server health check completed successfully.</p>
 
-Build URL:
-${env.BUILD_URL}
+<p>
+<b>GitHub Commit:</b><br>
+<a href="${env.GITHUB_COMMIT_URL ?: '#'}">Open commit on GitHub</a>
+</p>
 
-Regards,
-Jenkins CI/CD
+<p>
+<b>Jenkins Build:</b><br>
+<a href="${env.BUILD_URL}">Open Jenkins build</a>
+</p>
+
+<p>Regards,<br>Jenkins CI/CD</p>
+</body>
+</html>
 """,
                 attachLog: false
             )
 
-
             echo "Success notification email sent."
-
             echo "=========================================="
         }
 
-
         failure {
-
             echo "=========================================="
-
             echo "          PIPELINE FAILED"
-
             echo "=========================================="
-
 
             echo "One of the CI/CD stages failed."
-
             echo "Deployment did not complete successfully."
-
             echo "Changed modules: ${env.CHANGED_MODULES ?: 'None'}"
-
-
-            echo ""
-
-            echo "Check Odoo log:"
-
-            echo "${ODOO_LOG}"
-
-
-            echo ""
-
+            echo "Check Odoo log: ${ODOO_LOG}"
             echo "Sending failed build notification email..."
 
-
             emailext(
-                to: "harsh.panchal@aktivsoftware.com",
                 recipientProviders: [developers()],
                 subject: "[Jenkins] FAILED - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                body: """Hello,
+                mimeType: 'text/html',
+                body: """
+<html>
+<body>
+<p>Hello,</p>
 
-The Jenkins pipeline has failed.
+<p>The Jenkins pipeline has <b>failed</b>.</p>
 
-Build Status: FAILED
-Job: ${env.JOB_NAME}
-Build Number: #${env.BUILD_NUMBER}
-Branch: ${env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'Unknown'}
-Commit: ${env.GIT_COMMIT ?: 'Unknown'}
-Changed Modules: ${env.CHANGED_MODULES ?: 'None'}
+<table>
+<tr><td><b>Build Status:</b></td><td>FAILED</td></tr>
+<tr><td><b>Job:</b></td><td>${env.JOB_NAME}</td></tr>
+<tr><td><b>Build Number:</b></td><td>#${env.BUILD_NUMBER}</td></tr>
+<tr><td><b>Branch:</b></td><td>${env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'Unknown'}</td></tr>
+<tr><td><b>Commit:</b></td><td>${env.GIT_COMMIT ?: 'Unknown'}</td></tr>
+<tr><td><b>Changed Modules:</b></td><td>${env.CHANGED_MODULES ?: 'None'}</td></tr>
+</table>
 
-Failure details:
+<p><b>Failure details:</b><br>
 The pipeline stopped because one of the CI/CD stages returned an error.
+The Jenkins console log contains the exact error and failed stage.</p>
 
-The last 100 lines of the Jenkins console log are included below to help identify the failure reason:
+<p>
+<b>GitHub Commit:</b><br>
+<a href="${env.GITHUB_COMMIT_URL ?: '#'}">Open commit on GitHub</a>
+</p>
 
-------------------------------------------
-\${BUILD_LOG, maxLines=100, escapeHtml=false}
-------------------------------------------
+<p>
+<b>Jenkins Build:</b><br>
+<a href="${env.BUILD_URL}">Open Jenkins build and console output</a>
+</p>
 
-Odoo log file:
-${env.ODOO_LOG}
+<p><b>Odoo log file:</b><br>${env.ODOO_LOG}</p>
 
-Please open the Jenkins build page for the complete console output:
-
-${env.BUILD_URL}
-
-Regards,
-Jenkins CI/CD
+<p>Regards,<br>Jenkins CI/CD</p>
+</body>
+</html>
 """,
                 attachLog: true
             )
 
-
             echo "Failure notification email sent."
-
             echo "=========================================="
         }
     }
