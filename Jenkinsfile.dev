@@ -815,6 +815,37 @@ pipeline {
             echo "Changed modules: ${env.CHANGED_MODULES ?: 'None'}"
 
 
+            echo "Sending successful build notification email..."
+
+            emailext(
+                to: "harsh.panchal@aktivsoftware.com",
+                recipientProviders: [developers()],
+                subject: "[Jenkins] SUCCESS - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """Hello,
+
+The Jenkins pipeline has completed successfully.
+
+Build Status: SUCCESS
+Job: ${env.JOB_NAME}
+Build Number: #${env.BUILD_NUMBER}
+Branch: ${env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'Unknown'}
+Commit: ${env.GIT_COMMIT ?: 'Unknown'}
+Changed Modules: ${env.CHANGED_MODULES ?: 'None'}
+
+The Odoo custom addons were deployed and the Odoo server health check completed successfully.
+
+Build URL:
+${env.BUILD_URL}
+
+Regards,
+Jenkins CI/CD
+""",
+                attachLog: false
+            )
+
+
+            echo "Success notification email sent."
+
             echo "=========================================="
         }
 
@@ -841,6 +872,51 @@ pipeline {
 
             echo "${ODOO_LOG}"
 
+
+            echo ""
+
+            echo "Sending failed build notification email..."
+
+
+            emailext(
+                to: "harsh.panchal@aktivsoftware.com",
+                recipientProviders: [developers()],
+                subject: "[Jenkins] FAILED - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """Hello,
+
+The Jenkins pipeline has failed.
+
+Build Status: FAILED
+Job: ${env.JOB_NAME}
+Build Number: #${env.BUILD_NUMBER}
+Branch: ${env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'Unknown'}
+Commit: ${env.GIT_COMMIT ?: 'Unknown'}
+Changed Modules: ${env.CHANGED_MODULES ?: 'None'}
+
+Failure details:
+The pipeline stopped because one of the CI/CD stages returned an error.
+
+The last 100 lines of the Jenkins console log are included below to help identify the failure reason:
+
+------------------------------------------
+\${BUILD_LOG, maxLines=100, escapeHtml=false}
+------------------------------------------
+
+Odoo log file:
+${env.ODOO_LOG}
+
+Please open the Jenkins build page for the complete console output:
+
+${env.BUILD_URL}
+
+Regards,
+Jenkins CI/CD
+""",
+                attachLog: true
+            )
+
+
+            echo "Failure notification email sent."
 
             echo "=========================================="
         }
