@@ -1,32 +1,41 @@
 # -*- coding: utf-8 -*-
+"""AI-powered overdue invoice reminder logic."""
+
 import json
 import logging
+
 import requests
 
-from odoo import fields, models, _
+from odoo import _, fields, models
 
 _logger = logging.getLogger(__name__)
 
 
-class AccountMove(models.Model):
+class AccountMove(models.Model):  # pylint: disable=too-few-public-methods
+    """Extend invoices with automated AI overdue reminders."""
+
     _inherit = "account.move"
 
     def _ai_invoice_get_param(self, key, default=False):
+        """Return an AI Invoice Agent configuration parameter."""
         return self.env["ir.config_parameter"].sudo().get_param(
-            "ai_invoice_agent.%s" % key,
+            f"ai_invoice_agent.{key}",
             default,
         )
 
     def _ai_invoice_int_param(self, key, default):
+        """Return a configuration parameter converted to an integer."""
         try:
             return int(self._ai_invoice_get_param(key, default))
-        except Exception:
+        except (TypeError, ValueError):
             return default
 
     def _ai_overdue_build_prompt(self, invoice, reminder_level, overdue_days):
+        """Build the prompt used to generate an overdue invoice email."""
         return """You are an accounts receivable assistant.
-            Write a professional payment reminder email for an overdue customer invoice.
-            
+            Write a professional payment reminder email for an overdue
+            customer invoice.
+
             Rules:
             - Return JSON only with keys: subject, body_html
             - body_html must be valid simple HTML
@@ -36,7 +45,7 @@ class AccountMove(models.Model):
               2 = firm follow-up
               3 = final notice before manual follow-up
             - Keep it short and clear
-            
+
             Invoice context:
             Customer: {customer}
             Invoice Number: {invoice}
@@ -56,26 +65,36 @@ class AccountMove(models.Model):
             company=invoice.company_id.name,
         )
 
-    def _ai_overdue_generate_email(self, invoice, reminder_level, overdue_days):
+    def _ai_overdue_generate_email(
+        self, invoice, reminder_level, overdue_days
+    ):
+        """Generate an overdue invoice email through the configured AI API."""
         api_key = self._ai_invoice_get_param("api_key")
         api_url = self._ai_invoice_get_param("api_url")
         model = self._ai_invoice_get_param("model")
 
         if not api_key:
-            raise Exception(_("AI API Key is not configured."))
+            raise ValueError(_("AI API Key is not configured."))
         if not api_url:
-            raise Exception(_("AI API URL is not configured."))
+            raise ValueError(_("AI API URL is not configured."))
         if not model:
-            raise Exception(_("AI Model is not configured."))
+            raise ValueError(_("AI Model is not configured."))
 
-        prompt = self._ai_overdue_build_prompt(invoice, reminder_level, overdue_days)
+        prompt = self._ai_overdue_build_prompt(
+            invoice,
+            reminder_level,
+            overdue_days,
+        )
 
         payload = {
             "model": model,
             "messages": [
                 {
                     "role": "system",
-                    "content": "You generate safe, professional overdue invoice reminder emails.",
+                    "content": (
+                        "You generate safe, professional overdue invoice "
+                        "reminder emails."
+                    ),
                 },
                 {
                     "role": "user",
@@ -86,7 +105,7 @@ class AccountMove(models.Model):
         }
 
         headers = {
-            "Authorization": "Bearer %s" % api_key,
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
 
@@ -99,24 +118,30 @@ class AccountMove(models.Model):
         response.raise_for_status()
 
         content = response.json()["choices"][0]["message"]["content"].strip()
-    
+
         if content.startswith("```"):
             content = content.strip("`")
-            content = content.replace("json\n", "", 1).replace("json", "", 1).strip()
+            content = content.replace("json\n", "", 1)
+            content = content.replace("json", "", 1).strip()
 
         data = json.loads(content)
 
         return prompt, content, data.get("subject"), data.get("body_html")
 
     def _ai_overdue_create_activity(self, invoice):
+        """Create a manual follow-up activity for an overdue invoice."""
         invoice.activity_schedule(
             "mail.mail_activity_data_todo",
             summary=_("Manual follow-up required for overdue invoice"),
-            note=_("Maximum AI reminders reached. Please contact the customer manually."),
+            note=_(
+                "Maximum AI reminders reached. "
+                "Please contact the customer manually."
+            ),
             user_id=invoice.invoice_user_id.id or self.env.user.id,
         )
 
     def cron_ai_overdue_invoice_agent(self):
+        """Process overdue invoices and send configured AI reminders."""
         today = fields.Date.context_today(self)
 
         batch_limit = self._ai_invoice_int_param("batch_limit", 50)
@@ -137,10 +162,10 @@ class AccountMove(models.Model):
             limit=batch_limit,
         )
 
-        Log = self.env["ai.overdue.invoice.log"].sudo()
+        log_model = self.env["ai.overdue.invoice.log"].sudo()
 
         for invoice in invoices:
-            logs = Log.search(
+            logs = log_model.search(
                 [("invoice_id", "=", invoice.id)],
                 order="sent_date desc",
             )
@@ -156,13 +181,16 @@ class AccountMove(models.Model):
             if reminder_level > max_reminders:
                 if not logs.filtered(lambda log: log.state == "activity"):
                     self._ai_overdue_create_activity(invoice)
-                    Log.create({
+                    log_model.create({
                         "invoice_id": invoice.id,
                         "reminder_level": reminder_level,
                         "overdue_days": overdue_days,
                         "email_to": invoice.partner_id.email,
                         "state": "activity",
-                        "message": "Maximum reminders reached. Internal activity created.",
+                        "message": (
+                            "Maximum reminders reached. "
+                            "Internal activity created."
+                        ),
                     })
                 continue
 
@@ -172,14 +200,16 @@ class AccountMove(models.Model):
                     continue
 
             try:
-                prompt, ai_response, subject, body = self._ai_overdue_generate_email(
-                    invoice,
-                    reminder_level,
-                    overdue_days,
+                prompt, ai_response, subject, body = (
+                    self._ai_overdue_generate_email(
+                        invoice,
+                        reminder_level,
+                        overdue_days,
+                    )
                 )
 
                 if not subject or not body:
-                    raise Exception("AI response missing subject/body_html.")
+                    raise ValueError("AI response missing subject/body_html.")
 
                 mail = self.env["mail.mail"].sudo().create({
                     "subject": subject,
@@ -191,7 +221,7 @@ class AccountMove(models.Model):
                 })
                 mail.send()
 
-                Log.create({
+                log_model.create({
                     "invoice_id": invoice.id,
                     "reminder_level": reminder_level,
                     "overdue_days": overdue_days,
@@ -204,16 +234,18 @@ class AccountMove(models.Model):
                     "message": "AI email sent successfully.",
                 })
 
-            except Exception as e:
+            # Keep processing other invoices when one reminder fails.
+            # pylint: disable=broad-exception-caught
+            except Exception as error:
                 _logger.exception(
                     "AI invoice reminder failed for invoice %s",
                     invoice.id,
                 )
-                Log.create({
+                log_model.create({
                     "invoice_id": invoice.id,
                     "reminder_level": reminder_level,
                     "overdue_days": overdue_days,
                     "email_to": invoice.partner_id.email,
                     "state": "failed",
-                    "message": str(e),
+                    "message": str(error),
                 })

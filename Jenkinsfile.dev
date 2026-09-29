@@ -19,6 +19,7 @@ pipeline {
         PYLINT_MIN_SCORE = "3.0"
 
         ODOO_PORT = "8069"
+
     }
 
 
@@ -55,6 +56,26 @@ pipeline {
                     echo "Remote:"
                     git remote -v
                 '''
+
+                script {
+                    def gitRemote = sh(
+                        script: 'git config --get remote.origin.url',
+                        returnStdout: true
+                    ).trim()
+
+                    if (gitRemote) {
+                        def githubRepo = gitRemote
+                            .replaceFirst(/^git@github\.com:/, 'https://github.com/')
+                            .replaceFirst(/^https?:\/\/github\.com\//, 'https://github.com/')
+                            .replaceFirst(/\.git$/, '')
+
+                        env.GITHUB_COMMIT_URL = "${githubRepo}/commit/${env.GIT_COMMIT}"
+                    } else {
+                        env.GITHUB_COMMIT_URL = ''
+                    }
+
+                    echo "GitHub commit URL: ${env.GITHUB_COMMIT_URL ?: 'Not available'}"
+                }
             }
         }
 
@@ -213,7 +234,6 @@ pipeline {
 
                     echo "Minimum required Pylint score: ${env.PYLINT_MIN_SCORE}"
 
-
                     sh '''
                         set -e
 
@@ -268,6 +288,65 @@ pipeline {
                 }
             }
         }
+        
+        /*
+	 * ==========================================
+	 * FLAKE8
+	 * ==========================================
+	 */
+
+	stage('Flake8 Check') {
+
+	    when {
+		expression {
+		    return env.CHANGED_MODULES?.trim()
+		}
+	    }
+
+	    steps {
+
+		script {
+
+		    echo "=========================================="
+		    echo "FLAKE8 CHECK"
+		    echo "=========================================="
+
+		    echo "Changed modules: ${env.CHANGED_MODULES}"
+
+		    sh '''
+		        set -e
+
+		        echo ""
+		        echo "Python:"
+		        ${PYTHON} --version
+
+		        echo ""
+		        echo "Flake8:"
+		        ${PYTHON} -m flake8 --version
+
+		        echo ""
+		        echo "Running Flake8..."
+		        echo "------------------------------------------"
+
+		        for module in ${CHANGED_MODULES}
+		        do
+
+		            echo ""
+		            echo "Checking module: ${module}"
+
+		            ${PYTHON} -m flake8 \
+		                ${module}
+
+		        done
+
+		        echo ""
+		        echo "=========================================="
+		        echo "Flake8 check passed."
+		        echo "=========================================="
+		    '''
+		}
+	    }
+	}
 
 
         /*
@@ -279,127 +358,82 @@ pipeline {
         stage('Deploy Custom Addons') {
 
             when {
-
                 expression {
-
                     return env.CHANGED_MODULES?.trim()
-
                 }
             }
-
 
             steps {
 
                 script {
 
                     echo "=========================================="
-
                     echo "DEPLOYING CUSTOM ADDONS"
-
                     echo "=========================================="
-
 
                     sh '''
                         set -e
 
-
                         echo "Jenkins workspace:"
-
                         pwd
 
-
                         echo ""
-
                         echo "Target directory:"
-
                         echo "${SOURCE_DIR}"
-
 
                         test -d "${SOURCE_DIR}"
 
-
                         echo ""
-
                         echo "Modules to deploy:"
-
                         echo "${CHANGED_MODULES}"
-
 
                         for module in ${CHANGED_MODULES}
                         do
 
                             echo ""
-
                             echo "=========================================="
-
                             echo "Deploying module: ${module}"
-
                             echo "=========================================="
-
 
                             if [ ! -d "${module}" ]; then
-
                                 echo "ERROR: Module ${module} does not exist."
-
                                 exit 1
-
                             fi
 
+                            echo "Synchronizing module files..."
 
-                            echo "Removing old module..."
+                            sudo -n -u odoo rsync -a \
+                                --delete \
+                                --no-owner \
+                                --no-group \
+                                "${module}/" \
+                                "${SOURCE_DIR}/${module}/"
 
-                            rm -rf "${SOURCE_DIR}/${module}"
+                            echo "Fixing ownership..."
 
+                            sudo -n chown -R odoo:odoo \
+                                "${SOURCE_DIR}/${module}"
 
-                            echo "Copying new module..."
-
-                            cp -a "${module}" "${SOURCE_DIR}/"
+                            echo "Module deployed: ${module}"
 
                         done
 
-
                         echo ""
-
-                        echo "Fixing ownership..."
-
-                        sudo -n chown -R odoo:odoo "${SOURCE_DIR}"
-
-
-                        echo ""
-
-                        echo "Fixing permissions..."
-
-                        sudo -n chmod -R 777 "${SOURCE_DIR}"
-
-
-                        echo ""
-
                         echo "Final permissions:"
-
                         echo "------------------------------------------"
-
 
                         ls -ld "${SOURCE_DIR}"
 
-
                         for module in ${CHANGED_MODULES}
                         do
-
                             echo ""
-
                             echo "Module: ${module}"
-
                             ls -ld "${SOURCE_DIR}/${module}"
-
                         done
 
-
                         echo ""
-
                         echo "=========================================="
-
                         echo "Custom addons deployed successfully."
-
                         echo "=========================================="
                     '''
                 }
@@ -411,124 +445,39 @@ pipeline {
          * ==========================================
          * STOP ODOO
          * ==========================================
-         *
-         * Jenkins MUST have passwordless sudo
-         * permission for /usr/bin/fuser.
          */
 
         stage('Stop Odoo') {
 
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
+
             steps {
 
                 echo "=========================================="
-
                 echo "STOPPING ODOO"
-
                 echo "=========================================="
-
 
                 sh '''
                     set -e
 
+                    echo "Stopping Odoo using systemd..."
 
-                    echo "Checking port ${ODOO_PORT}..."
-
-
-                    if ss -ltn | grep -q ":${ODOO_PORT} "; then
-
-                        echo "Port ${ODOO_PORT} is currently in use."
-
-
-                        echo ""
-
-                        echo "Checking sudo permission for Jenkins..."
-
-
-                        if ! sudo -n -v 2>/dev/null; then
-
-                            echo "ERROR: Jenkins does not have passwordless sudo permission."
-
-                            echo ""
-
-                            echo "Please configure sudoers for Jenkins."
-
-                            echo "Required permission: /usr/bin/fuser"
-
-                            exit 1
-
-                        fi
-
-
-                        echo ""
-
-                        echo "Finding process..."
-
-                        sudo -n fuser -v ${ODOO_PORT}/tcp || true
-
-
-                        echo ""
-
-                        echo "Stopping Odoo process..."
-
-                        sudo -n fuser -k ${ODOO_PORT}/tcp
-
-
-                        echo ""
-
-                        echo "Waiting for port ${ODOO_PORT} to be released..."
-
-
-                        for i in $(seq 1 30)
-                        do
-
-                            if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
-
-                                echo "Port ${ODOO_PORT} has been released."
-
-                                break
-
-                            fi
-
-
-                            echo "Port still in use... waiting (${i}/30)"
-
-                            sleep 1
-
-                        done
-
-
-                    else
-
-                        echo "Port ${ODOO_PORT} is already free."
-
-                    fi
-
+                    sudo -n systemctl stop odoo
 
                     echo ""
+                    echo "Checking Odoo service state..."
 
-                    echo "Final port check..."
-
-
-                    if ss -ltn | grep -q ":${ODOO_PORT} "; then
-
-                        echo "ERROR: Port ${ODOO_PORT} is still in use."
-
-                        echo ""
-
-                        sudo -n fuser -v ${ODOO_PORT}/tcp || true
-
+                    if sudo -n systemctl is-active --quiet odoo; then
+                        echo "ERROR: Odoo service is still running."
+                        sudo -n systemctl status odoo --no-pager || true
                         exit 1
-
                     fi
 
-
-                    echo ""
-
-                    echo "=========================================="
-
-                    echo "Odoo stopped successfully."
-
-                    echo "=========================================="
+                    echo "Odoo service stopped successfully."
                 '''
             }
         }
@@ -642,194 +591,55 @@ pipeline {
 
         stage('Start Odoo') {
 
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
+
             steps {
 
                 echo "=========================================="
-
                 echo "STARTING ODOO"
-
                 echo "=========================================="
-
 
                 sh '''
                     set -e
 
+                    echo "Starting Odoo using systemd..."
 
-                    echo "Python:"
-
-                    echo "${PYTHON}"
-
+                    sudo -n systemctl start odoo
 
                     echo ""
-
-                    echo "Odoo binary:"
-
-                    echo "${ODOO_BIN}"
-
-
-                    echo ""
-
-                    echo "Odoo config:"
-
-                    echo "${ODOO_CONFIG}"
-
-
-                    test -f "${ODOO_BIN}"
-
-                    test -f "${ODOO_CONFIG}"
-
-
-                    echo ""
-
-                    echo "Checking if Odoo is already running..."
-
-
-                    EXISTING_PIDS=$(pgrep -u odoo -f "${ODOO_BIN}" || true)
-
-
-                    if [ -n "${EXISTING_PIDS}" ]; then
-
-                        echo "Odoo is already running:"
-
-                        echo "${EXISTING_PIDS}"
-
-                    else
-
-                        echo "Odoo is not running."
-
-
-                        echo ""
-
-                        echo "Checking port ${ODOO_PORT}..."
-
-
-                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
-
-                            echo "ERROR: Port ${ODOO_PORT} is already in use."
-
-                            ss -ltnp | grep ":${ODOO_PORT} " || true
-
-                            exit 1
-
-                        fi
-
-
-                        echo ""
-
-                        echo "Starting Odoo as odoo user..."
-
-
-                        sudo -n -u odoo sh -c "
-                            nohup '${PYTHON}' '${ODOO_BIN}' \
-                            -c '${ODOO_CONFIG}' \
-                            > '${ODOO_LOG}' 2>&1 \
-                            < /dev/null &
-                        "
-
-                    fi
-
-
-                    echo ""
-
-                    echo "Waiting for Odoo process..."
-
+                    echo "Waiting for Odoo service..."
 
                     for i in $(seq 1 30)
                     do
-
-                        if pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
-
-                            echo "Odoo process started."
-
+                        if sudo -n systemctl is-active --quiet odoo; then
+                            echo "Odoo service is active."
                             break
-
                         fi
 
-
-                        echo "Waiting for Odoo process... (${i}/30)"
-
+                        echo "Waiting for Odoo service... (${i}/30)"
                         sleep 1
-
                     done
 
+                    if ! sudo -n systemctl is-active --quiet odoo; then
+                        echo ""
+                        echo "ERROR: Odoo service failed to start."
 
-                    if ! pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
+                        sudo -n systemctl status odoo --no-pager || true
 
                         echo ""
-
-                        echo "ERROR: Odoo process did not start."
-
-
-                        echo ""
-
                         echo "Last 100 lines of Odoo log:"
 
-                        echo "------------------------------------------"
-
-
                         tail -100 "${ODOO_LOG}" || true
 
-
                         exit 1
-
                     fi
 
-
                     echo ""
-
-                    echo "Odoo process is running."
-
-
-                    echo ""
-
-                    echo "Waiting for port ${ODOO_PORT}..."
-
-
-                    for i in $(seq 1 30)
-                    do
-
-                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
-
-                            echo "Port ${ODOO_PORT} is listening."
-
-                            break
-
-                        fi
-
-
-                        echo "Waiting for port ${ODOO_PORT}... (${i}/30)"
-
-                        sleep 1
-
-                    done
-
-
-                    if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
-
-                        echo ""
-
-                        echo "ERROR: Odoo process is running but port ${ODOO_PORT} is not listening."
-
-
-                        echo ""
-
-                        echo "Odoo log:"
-
-                        tail -100 "${ODOO_LOG}" || true
-
-
-                        exit 1
-
-                    fi
-
-
-                    echo ""
-
-                    echo "=========================================="
-
-                    echo "Odoo started successfully."
-
-                    echo "=========================================="
+                    echo "Odoo service started successfully."
                 '''
             }
         }
@@ -843,29 +653,66 @@ pipeline {
 
         stage('Odoo Server Check') {
 
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
+
             steps {
 
                 echo "=========================================="
-
                 echo "ODOO SERVER CHECK"
-
                 echo "=========================================="
-
 
                 sh '''
                     set -e
 
+                    echo "Checking Odoo systemd service..."
 
-                    echo "Checking Odoo process..."
+                    sudo -n systemctl is-active --quiet odoo
 
-                    pgrep -u odoo -f "${ODOO_BIN}"
-
+                    echo "Odoo systemd service is active."
 
                     echo ""
+                    echo "Waiting for Odoo port ${ODOO_PORT}..."
 
-                    echo "Checking port ${ODOO_PORT}..."
+                    for i in $(seq 1 30)
+                    do
 
-                    ss -ltn | grep ":${ODOO_PORT} "
+                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
+
+                            echo "Odoo port ${ODOO_PORT} is listening."
+
+                            break
+
+                        fi
+
+                        echo "Waiting for Odoo port... (${i}/30)"
+
+                        sleep 1
+
+                    done
+
+
+                    if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
+
+                        echo ""
+                        echo "ERROR: Odoo service is active but port ${ODOO_PORT} is not listening."
+
+                        echo ""
+
+                        sudo -n systemctl status odoo --no-pager || true
+
+                        echo ""
+
+                        echo "Last 100 lines of Odoo log:"
+
+                        tail -100 "${ODOO_LOG}" || true
+
+                        exit 1
+
+                    fi
 
 
                     echo ""
@@ -883,6 +730,15 @@ pipeline {
          */
 
         stage('Odoo Health Check') {
+
+            when {
+
+                expression {
+
+                    return env.CHANGED_MODULES?.trim()
+
+                }
+            }
 
             steps {
 
@@ -956,56 +812,118 @@ pipeline {
     post {
 
         always {
-
             echo "=========================================="
-
             echo "PIPELINE FINISHED"
-
             echo "=========================================="
         }
-
 
         success {
-
             echo "=========================================="
-
             echo "          PIPELINE SUCCESS"
-
             echo "=========================================="
-
 
             echo "Deployment completed successfully."
-
             echo "Changed modules: ${env.CHANGED_MODULES ?: 'None'}"
+            echo "Sending successful build notification email..."
 
+            emailext(
+                recipientProviders: [developers()],
+                subject: "[Jenkins] SUCCESS - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                mimeType: 'text/html',
+                body: """
+<html>
+<body>
+<p>Hello,</p>
 
+<p>The Jenkins pipeline has completed successfully.</p>
+
+<table>
+<tr><td><b>Build Status:</b></td><td>SUCCESS</td></tr>
+<tr><td><b>Job:</b></td><td>${env.JOB_NAME}</td></tr>
+<tr><td><b>Build Number:</b></td><td>#${env.BUILD_NUMBER}</td></tr>
+<tr><td><b>Branch:</b></td><td>${env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'Unknown'}</td></tr>
+<tr><td><b>Commit:</b></td><td>${env.GIT_COMMIT ?: 'Unknown'}</td></tr>
+<tr><td><b>Changed Modules:</b></td><td>${env.CHANGED_MODULES ?: 'None'}</td></tr>
+</table>
+
+<p>The Odoo custom addons were deployed and the Odoo server health check completed successfully.</p>
+
+<p>
+<b>GitHub Commit:</b><br>
+<a href="${env.GITHUB_COMMIT_URL ?: '#'}">Open commit on GitHub</a>
+</p>
+
+<p>
+<b>Jenkins Build:</b><br>
+<a href="${env.BUILD_URL}">Open Jenkins build</a>
+</p>
+
+<p>Regards,<br>Jenkins CI/CD</p>
+</body>
+</html>
+""",
+                attachLog: false
+            )
+
+            echo "Success notification email sent."
             echo "=========================================="
         }
 
-
         failure {
-
             echo "=========================================="
-
             echo "          PIPELINE FAILED"
-
             echo "=========================================="
-
 
             echo "One of the CI/CD stages failed."
-
             echo "Deployment did not complete successfully."
-
             echo "Changed modules: ${env.CHANGED_MODULES ?: 'None'}"
+            echo "Check Odoo log: ${ODOO_LOG}"
+            echo "Sending failed build notification email..."
 
+            emailext(
+                recipientProviders: [developers()],
+                subject: "[Jenkins] FAILED - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                mimeType: 'text/html',
+                body: """
+<html>
+<body>
+<p>Hello,</p>
 
-            echo ""
+<p>The Jenkins pipeline has <b>failed</b>.</p>
 
-            echo "Check Odoo log:"
+<table>
+<tr><td><b>Build Status:</b></td><td>FAILED</td></tr>
+<tr><td><b>Job:</b></td><td>${env.JOB_NAME}</td></tr>
+<tr><td><b>Build Number:</b></td><td>#${env.BUILD_NUMBER}</td></tr>
+<tr><td><b>Branch:</b></td><td>${env.BRANCH_NAME ?: env.GIT_BRANCH ?: 'Unknown'}</td></tr>
+<tr><td><b>Commit:</b></td><td>${env.GIT_COMMIT ?: 'Unknown'}</td></tr>
+<tr><td><b>Changed Modules:</b></td><td>${env.CHANGED_MODULES ?: 'None'}</td></tr>
+</table>
 
-            echo "${ODOO_LOG}"
+<p><b>Failure details:</b><br>
+The pipeline stopped because one of the CI/CD stages returned an error.
+The Jenkins console log contains the exact error and failed stage.</p>
 
+<p>
+<b>GitHub Commit:</b><br>
+<a href="${env.GITHUB_COMMIT_URL ?: '#'}">Open commit on GitHub</a>
+</p>
 
+<p>
+<b>Jenkins Build:</b><br>
+<a href="${env.BUILD_URL}">Open Jenkins build and console output</a>
+</p>
+
+<p><b>Odoo log file:</b><br>${env.ODOO_LOG}</p>
+
+<p>Regards,<br>Jenkins CI/CD</p>
+</body>
+</html>
+""",
+                attachLog: true
+            )
+
+            echo "Failure notification email sent."
             echo "=========================================="
         }
     }

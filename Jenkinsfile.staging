@@ -74,6 +74,35 @@ pipeline {
                     echo "Remote:"
                     git remote -v
                 '''
+
+                script {
+                    def commitSha = sh(
+                        script: 'git rev-parse HEAD',
+                        returnStdout: true
+                    ).trim()
+
+                    def authorEmail = sh(
+                        script: 'git log -1 --pretty=format:%ae',
+                        returnStdout: true
+                    ).trim()
+
+                    def remoteUrl = sh(
+                        script: 'git remote get-url origin',
+                        returnStdout: true
+                    ).trim()
+
+                    def githubUrl = remoteUrl
+                        .replaceFirst(/^git@github\.com:/, 'https://github.com/')
+                        .replaceFirst(/^ssh:\/\/git@github\.com\//, 'https://github.com/')
+                        .replaceFirst(/\.git$/, '')
+
+                    env.COMMIT_SHA = commitSha
+                    env.COMMIT_AUTHOR_EMAIL = authorEmail
+                    env.GITHUB_COMMIT_URL = "${githubUrl}/commit/${commitSha}"
+
+                    echo "Commit author email: ${env.COMMIT_AUTHOR_EMAIL}"
+                    echo "GitHub commit URL: ${env.GITHUB_COMMIT_URL}"
+                }
             }
         }
 
@@ -171,6 +200,51 @@ pipeline {
 
                     echo "Pylint check passed."
                 '''
+            }
+        }
+
+        stage('Flake8 Check') {
+            when {
+                expression {
+                    return env.CHANGED_MODULES?.trim()
+                }
+            }
+
+            steps {
+                script {
+                    echo "=========================================="
+                    echo "FLAKE8 CHECK"
+                    echo "=========================================="
+                    echo "Changed modules: ${env.CHANGED_MODULES}"
+
+                    sh '''
+                        set -e
+
+                        echo ""
+                        echo "Python:"
+                        ${PYTHON} --version
+
+                        echo ""
+                        echo "Flake8:"
+                        ${PYTHON} -m flake8 --version
+
+                        echo ""
+                        echo "Running Flake8..."
+                        echo "------------------------------------------"
+
+                        for module in ${CHANGED_MODULES}
+                        do
+                            echo ""
+                            echo "Checking module: ${module}"
+                            ${PYTHON} -m flake8 ${module}
+                        done
+
+                        echo ""
+                        echo "=========================================="
+                        echo "Flake8 check passed."
+                        echo "=========================================="
+                    '''
+                }
             }
         }
 
@@ -439,7 +513,37 @@ pipeline {
             echo "Deployment completed successfully."
             echo "Branch: staging"
             echo "Changed modules: ${env.CHANGED_MODULES ?: 'None'}"
+            echo "Commit: ${env.COMMIT_SHA ?: 'Unknown'}"
+            echo "Commit author: ${env.COMMIT_AUTHOR_EMAIL ?: 'Unknown'}"
             echo "=========================================="
+
+            emailext(
+                recipientProviders: [developers()],
+                mimeType: 'text/html',
+                subject: "[Jenkins] SUCCESS - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """<html>
+<body>
+<p>Hello,</p>
+<p>The Jenkins staging pipeline has completed successfully.</p>
+<table>
+<tr><td><b>Build Status:</b></td><td>SUCCESS</td></tr>
+<tr><td><b>Job:</b></td><td>${env.JOB_NAME}</td></tr>
+<tr><td><b>Build Number:</b></td><td>#${env.BUILD_NUMBER}</td></tr>
+<tr><td><b>Branch:</b></td><td>${env.GITHUB_BRANCH}</td></tr>
+<tr><td><b>Commit:</b></td><td>${env.COMMIT_SHA ?: 'Unknown'}</td></tr>
+<tr><td><b>Commit Author:</b></td><td>${env.COMMIT_AUTHOR_EMAIL ?: 'Unknown'}</td></tr>
+<tr><td><b>Changed Modules:</b></td><td>${env.CHANGED_MODULES ?: 'None'}</td></tr>
+</table>
+<p><b>GitHub Commit:</b> <a href="${env.GITHUB_COMMIT_URL ?: '#'}">${env.GITHUB_COMMIT_URL ?: 'Unavailable'}</a></p>
+<p><b>Jenkins Build:</b> <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
+<p>The Odoo custom addons were deployed and the Odoo server health check completed successfully.</p>
+<p>Regards,<br>Jenkins CI/CD</p>
+</body>
+</html>""",
+                attachLog: false
+            )
+
+            echo "Success notification email sent."
         }
 
         failure {
@@ -450,10 +554,43 @@ pipeline {
             echo "Deployment did not complete successfully."
             echo "Branch: staging"
             echo "Changed modules: ${env.CHANGED_MODULES ?: 'None'}"
-            echo ""
-            echo "Check Odoo log:"
-            echo "${ODOO_LOG}"
+            echo "Commit: ${env.COMMIT_SHA ?: 'Unknown'}"
+            echo "Commit author: ${env.COMMIT_AUTHOR_EMAIL ?: 'Unknown'}"
+            echo "Check the Jenkins console log for the exact failure reason."
+            echo "Odoo log: ${env.ODOO_LOG}"
             echo "=========================================="
+
+            emailext(
+                recipientProviders: [developers()],
+                mimeType: 'text/html',
+                subject: "[Jenkins] FAILED - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+                body: """<html>
+<body>
+<p>Hello,</p>
+<p>The Jenkins staging pipeline has <b>failed</b>.</p>
+<table>
+<tr><td><b>Build Status:</b></td><td>FAILED</td></tr>
+<tr><td><b>Job:</b></td><td>${env.JOB_NAME}</td></tr>
+<tr><td><b>Build Number:</b></td><td>#${env.BUILD_NUMBER}</td></tr>
+<tr><td><b>Branch:</b></td><td>${env.GITHUB_BRANCH}</td></tr>
+<tr><td><b>Commit:</b></td><td>${env.COMMIT_SHA ?: 'Unknown'}</td></tr>
+<tr><td><b>Commit Author:</b></td><td>${env.COMMIT_AUTHOR_EMAIL ?: 'Unknown'}</td></tr>
+<tr><td><b>Changed Modules:</b></td><td>${env.CHANGED_MODULES ?: 'None'}</td></tr>
+</table>
+<p><b>GitHub Commit:</b> <a href="${env.GITHUB_COMMIT_URL ?: '#'}">${env.GITHUB_COMMIT_URL ?: 'Unavailable'}</a></p>
+<p><b>Jenkins Build:</b> <a href="${env.BUILD_URL}">${env.BUILD_URL}</a></p>
+<p><b>Failure information:</b><br>The pipeline stopped because one of its CI/CD stages returned an error. The exact failure reason is included in the Jenkins console output below.</p>
+<hr>
+<p><b>Last 100 lines of Jenkins console output:</b></p>
+<pre>\${BUILD_LOG, maxLines=100, escapeHtml=true}</pre>
+<p><b>Odoo log:</b> ${env.ODOO_LOG}</p>
+<p>Regards,<br>Jenkins CI/CD</p>
+</body>
+</html>""",
+                attachLog: true
+            )
+
+            echo "Failure notification email sent."
         }
     }
 }

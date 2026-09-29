@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
+"""AI Invoice Agent configuration settings."""
+
 from odoo import fields, models
 
 
+# pylint: disable=too-few-public-methods
 class ResConfigSettings(models.TransientModel):
+    """Expose AI Invoice Agent settings in Odoo configuration."""
+
     _inherit = "res.config.settings"
 
     ai_api_key = fields.Char(

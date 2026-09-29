@@ -1,19 +1,39 @@
 # Python
 __pycache__/
-*.py[cod]
-*$py.class
+*.pyc
+*.pyo
+*.pyd
 
-# Odoo
-*.log
+# PyCharm / IntelliJ
+.idea/
 
 # Virtual environments
 .venv/
 venv/
 env/
 
-# IDE
-.vscode/
-.idea/
+# Logs
+*.log
 
-# OS
+# OS files
 .DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*~
+
+# Python packaging
+*.egg-info/
+dist/
+build/
+
+# Test / coverage files
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Odoo
+*.pyc
