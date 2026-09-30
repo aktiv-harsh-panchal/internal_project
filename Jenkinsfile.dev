@@ -375,10 +375,6 @@ pipeline {
 		    ${ODOOLINT} --help
 
 		    echo ""
-		    echo "OdooLint executable:"
-		    which odoolint
-
-		    echo ""
 		    echo "Current Git commit:"
 		    git rev-parse HEAD
 
@@ -395,6 +391,7 @@ pipeline {
 		'''
 	    }
 	}
+
 
 
 
