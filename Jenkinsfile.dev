@@ -5,6 +5,7 @@ pipeline {
     environment {
 
         PYTHON = "/home/odoo/.virtualenvs/odoo19/bin/python3"
+        ODOOLINT = '/home/odoo/.virtualenvs/odoo19/bin/odoolint'
 
         ODOO_BIN = "/home/odoo/workspace/odoo/odoo_19/odoo-bin"
 
@@ -371,7 +372,11 @@ pipeline {
 
 		    echo ""
 		    echo "OdooLint:"
-		    ${PYTHON} -m odoolint --help
+		    ${ODOOLINT} --help
+
+		    echo ""
+		    echo "OdooLint executable:"
+		    which odoolint
 
 		    echo ""
 		    echo "Current Git commit:"
@@ -381,7 +386,7 @@ pipeline {
 		    echo "Running OdooLint..."
 		    echo "------------------------------------------"
 
-		    ${PYTHON} -m odoolint --head "${GIT_COMMIT}"
+		    ${ODOOLINT} --head "${GIT_COMMIT}"
 
 		    echo ""
 		    echo "=========================================="
@@ -390,6 +395,7 @@ pipeline {
 		'''
 	    }
 	}
+
 
 
 
