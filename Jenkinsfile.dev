@@ -347,7 +347,7 @@ pipeline {
 		}
 	    }
 	}
-	
+
 	stage('OdooLint Check') {
 
 	    when {
@@ -365,8 +365,13 @@ pipeline {
 		sh '''
 		    set -e
 
-		    echo "OdooLint version:"
-		    odoolint --help
+		    echo ""
+		    echo "Python:"
+		    ${PYTHON} --version
+
+		    echo ""
+		    echo "OdooLint:"
+		    ${PYTHON} -m odoolint --help
 
 		    echo ""
 		    echo "Current Git commit:"
@@ -376,7 +381,7 @@ pipeline {
 		    echo "Running OdooLint..."
 		    echo "------------------------------------------"
 
-		    odoolint --head "${GIT_COMMIT}"
+		    ${PYTHON} -m odoolint --head "${GIT_COMMIT}"
 
 		    echo ""
 		    echo "=========================================="
@@ -385,6 +390,7 @@ pipeline {
 		'''
 	    }
 	}
+
 
 
         /*
