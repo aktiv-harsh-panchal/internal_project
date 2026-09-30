@@ -347,6 +347,44 @@ pipeline {
 		}
 	    }
 	}
+	
+	stage('OdooLint Check') {
+
+	    when {
+		expression {
+		    return env.CHANGED_MODULES?.trim()
+		}
+	    }
+
+	    steps {
+
+		echo "=========================================="
+		echo "ODOO LINT CHECK"
+		echo "=========================================="
+
+		sh '''
+		    set -e
+
+		    echo "OdooLint version:"
+		    odoolint --help
+
+		    echo ""
+		    echo "Current Git commit:"
+		    git rev-parse HEAD
+
+		    echo ""
+		    echo "Running OdooLint..."
+		    echo "------------------------------------------"
+
+		    odoolint --head "${GIT_COMMIT}"
+
+		    echo ""
+		    echo "=========================================="
+		    echo "OdooLint check passed."
+		    echo "=========================================="
+		'''
+	    }
+	}
 
 
         /*
