@@ -1,3 +1,4 @@
+```groovy
 pipeline {
 
     agent any
@@ -56,13 +57,22 @@ pipeline {
                     if (gitRemote) {
 
                         if (gitRemote.startsWith('git@github.com:')) {
-                            gitRemote = gitRemote.replaceFirst(
-                                /^git@github\.com:/,
-                                'https://github.com/'
+
+                            gitRemote = gitRemote.substring(
+                                'git@github.com:'.length()
                             )
+
+                            gitRemote =
+                                'https://github.com/' + gitRemote
                         }
 
-                        gitRemote = gitRemote.replaceFirst(/\.git$/, '')
+                        if (gitRemote.endsWith('.git')) {
+
+                            gitRemote = gitRemote.substring(
+                                0,
+                                gitRemote.length() - 4
+                            )
+                        }
 
                         env.GITHUB_COMMIT_URL =
                             "${gitRemote}/commit/${env.GIT_COMMIT}"
@@ -737,4 +747,5 @@ Jenkins
         }
     }
 }
+```
 
