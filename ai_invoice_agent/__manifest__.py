@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "AI Invoice Agent",
-    "version": "19.0.1.1.16",
+    "version": "19.0.1.1.17",
     "category": "Accounting",
     "summary": "AI powered overdue invoice reminder automation",
     "depends": ["account", "mail"],
