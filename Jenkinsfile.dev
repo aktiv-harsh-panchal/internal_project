@@ -359,40 +359,52 @@ pipeline {
 
 	    steps {
 
-		echo "=========================================="
-		echo "ODOO LINT CHECK"
-		echo "=========================================="
+		script {
 
-		sh '''
-		    set -e
-
-		    echo ""
-		    echo "Python:"
-		    ${PYTHON} --version
-
-		    echo ""
-		    echo "OdooLint:"
-		    ${ODOOLINT} --help
-
-		    echo ""
-		    echo "Current Git commit:"
-		    git rev-parse HEAD
-
-		    echo ""
-		    echo "Running OdooLint..."
-		    echo "------------------------------------------"
-
-		    ${ODOOLINT} --head "${GIT_COMMIT}"
-
-		    echo ""
 		    echo "=========================================="
-		    echo "OdooLint check passed."
+		    echo "ODOO LINT CHECK"
 		    echo "=========================================="
-		'''
+
+		    echo "Changed modules: ${env.CHANGED_MODULES}"
+
+		    sh '''
+		        set -e
+
+		        echo ""
+		        echo "Python:"
+		        ${PYTHON} --version
+
+		        echo ""
+		        echo "OdooLint:"
+		        ${PYTHON} -m pip show odoolint
+
+		        echo ""
+		        echo "Changed modules:"
+		        echo "${CHANGED_MODULES}"
+
+		        echo ""
+		        echo "Running OdooLint only for changed modules..."
+		        echo "------------------------------------------"
+
+		        for module in ${CHANGED_MODULES}
+		        do
+		            echo ""
+		            echo "Checking module: ${module}"
+
+		            (
+		                cd "${module}"
+		                odoolint --head "${GIT_COMMIT}"
+		            )
+		        done
+
+		        echo ""
+		        echo "=========================================="
+		        echo "OdooLint check passed."
+		        echo "=========================================="
+		    '''
+		}
 	    }
 	}
-
-
 
 
 
