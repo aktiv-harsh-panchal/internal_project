@@ -5,6 +5,7 @@ pipeline {
     environment {
 
         PYTHON = "/home/odoo/.virtualenvs/odoo19/bin/python3"
+
         ODOOLINT = "/home/odoo/.virtualenvs/odoo19/bin/odoolint"
 
         ODOO_BIN = "/home/odoo/workspace/odoo/odoo_19/odoo-bin"
@@ -20,7 +21,6 @@ pipeline {
         PYLINT_MIN_SCORE = "3.0"
 
         ODOO_PORT = "8069"
-
     }
 
 
@@ -41,6 +41,7 @@ pipeline {
                 echo "GIT INFORMATION"
                 echo "=========================================="
 
+
                 sh '''
                     echo "Current branch:"
                     git branch --show-current
@@ -58,12 +59,14 @@ pipeline {
                     git remote -v
                 '''
 
+
                 script {
 
                     def gitRemote = sh(
                         script: 'git config --get remote.origin.url',
                         returnStdout: true
                     ).trim()
+
 
                     if (gitRemote) {
 
@@ -72,14 +75,15 @@ pipeline {
                             .replaceFirst(/^https?:\\/\\/github\\.com\\//, 'https://github.com/')
                             .replaceFirst(/\\.git$/, '')
 
+
                         env.GITHUB_COMMIT_URL =
                             "${githubRepo}/commit/${env.GIT_COMMIT}"
 
                     } else {
 
                         env.GITHUB_COMMIT_URL = ''
-
                     }
+
 
                     echo "GitHub commit URL: ${env.GITHUB_COMMIT_URL ?: 'Not available'}"
                 }
@@ -89,7 +93,7 @@ pipeline {
 
         /*
          * ==========================================
-         * DETECT CHANGED MODULES
+         * DETECT CHANGED ODOO MODULES
          * ==========================================
          */
 
@@ -117,8 +121,18 @@ pipeline {
 
 
                     echo "Previous commit: ${previousCommit}"
-
                     echo "Current commit: ${currentCommit}"
+
+
+                    /*
+                     * Store commit IDs as environment variables.
+                     * This allows the shell scripts below to use
+                     * them without Groovy interpreting $ variables.
+                     */
+
+                    env.PREVIOUS_COMMIT = previousCommit
+
+                    env.CURRENT_COMMIT = currentCommit
 
 
                     /*
@@ -126,14 +140,14 @@ pipeline {
                      */
 
                     def changedFiles = sh(
-                        script: """
-                            git diff --name-only ${previousCommit} ${currentCommit} |
+                        script: '''
+                            git diff --name-only "${PREVIOUS_COMMIT}" "${CURRENT_COMMIT}" |
                             grep -v '__pycache__/' |
-                            grep -v '\\.pyc\$' |
-                            grep -v '^Jenkinsfile\$' |
-                            grep -v '^\\.gitignore\$' |
+                            grep -v '\\.pyc$' |
+                            grep -v '^Jenkinsfile$' |
+                            grep -v '^\\.gitignore$' |
                             cat || true
-                        """,
+                        ''',
                         returnStdout: true
                     ).trim()
 
@@ -152,34 +166,33 @@ pipeline {
                     } else {
 
                         echo "No relevant files changed."
-
                     }
 
 
                     /*
                      * Detect Odoo modules.
                      *
-                     * Only directories containing
-                     * __manifest__.py are considered.
+                     * A directory is considered an Odoo module
+                     * only when __manifest__.py exists.
                      */
 
                     def modules = sh(
-                        script: """
-                            git diff --name-only ${previousCommit} ${currentCommit} |
+                        script: '''
+                            git diff --name-only "${PREVIOUS_COMMIT}" "${CURRENT_COMMIT}" |
                             grep -v '__pycache__/' |
-                            grep -v '\\.pyc\$' |
-                            grep -v '^Jenkinsfile\$' |
-                            grep -v '^\\.gitignore\$' |
-                            awk -F/ 'NF >= 2 {print \\$1}' |
+                            grep -v '\\.pyc$' |
+                            grep -v '^Jenkinsfile$' |
+                            grep -v '^\\.gitignore$' |
+                            awk -F/ 'NF >= 2 {print $1}' |
                             sort -u |
                             while read module
                             do
-                                if [ -f "\\$module/__manifest__.py" ]; then
-                                    echo "\\$module"
+                                if [ -f "$module/__manifest__.py" ]; then
+                                    echo "$module"
                                 fi
                             done |
                             tr '\\n' ' '
-                        """,
+                        ''',
                         returnStdout: true
                     ).trim()
 
@@ -198,7 +211,6 @@ pipeline {
                     } else {
 
                         echo "No Odoo modules changed."
-
                     }
 
 
@@ -210,7 +222,7 @@ pipeline {
 
         /*
          * ==========================================
-         * PYLINT
+         * PYLINT CHECK
          * ==========================================
          */
 
@@ -221,7 +233,6 @@ pipeline {
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
-
                 }
             }
 
@@ -231,9 +242,7 @@ pipeline {
                 script {
 
                     echo "=========================================="
-
                     echo "PYLINT CHECK"
-
                     echo "=========================================="
 
 
@@ -249,19 +258,19 @@ pipeline {
                         echo ""
                         echo "Python:"
 
-                        ${PYTHON} --version
+                        "${PYTHON}" --version
 
 
                         echo ""
                         echo "Python executable:"
 
-                        ${PYTHON} -c "import sys; print(sys.executable)"
+                        "${PYTHON}" -c "import sys; print(sys.executable)"
 
 
                         echo ""
                         echo "Pylint:"
 
-                        ${PYTHON} -m pylint --version
+                        "${PYTHON}" -m pylint --version
 
 
                         echo ""
@@ -278,9 +287,9 @@ pipeline {
                             echo "Checking module: ${module}"
 
 
-                            ${PYTHON} -m pylint \
-                                --fail-under=${PYLINT_MIN_SCORE} \
-                                ${module}
+                            "${PYTHON}" -m pylint \
+                                --fail-under="${PYLINT_MIN_SCORE}" \
+                                "${module}"
 
                         done
 
@@ -300,7 +309,7 @@ pipeline {
 
         /*
          * ==========================================
-         * FLAKE8
+         * FLAKE8 CHECK
          * ==========================================
          */
 
@@ -311,7 +320,6 @@ pipeline {
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
-
                 }
             }
 
@@ -321,9 +329,7 @@ pipeline {
                 script {
 
                     echo "=========================================="
-
                     echo "FLAKE8 CHECK"
-
                     echo "=========================================="
 
 
@@ -337,13 +343,13 @@ pipeline {
                         echo ""
                         echo "Python:"
 
-                        ${PYTHON} --version
+                        "${PYTHON}" --version
 
 
                         echo ""
                         echo "Flake8:"
 
-                        ${PYTHON} -m flake8 --version
+                        "${PYTHON}" -m flake8 --version
 
 
                         echo ""
@@ -360,8 +366,8 @@ pipeline {
                             echo "Checking module: ${module}"
 
 
-                            ${PYTHON} -m flake8 \
-                                ${module}
+                            "${PYTHON}" -m flake8 \
+                                "${module}"
 
                         done
 
@@ -381,7 +387,7 @@ pipeline {
 
         /*
          * ==========================================
-         * ODOO LINT
+         * ODOO LINT CHECK
          * ==========================================
          */
 
@@ -392,7 +398,6 @@ pipeline {
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
-
                 }
             }
 
@@ -400,9 +405,7 @@ pipeline {
             steps {
 
                 echo "=========================================="
-
                 echo "ODOO LINT CHECK"
-
                 echo "=========================================="
 
 
@@ -411,41 +414,36 @@ pipeline {
 
 
                     echo ""
-
                     echo "Python:"
 
-                    ${PYTHON} --version
+                    "${PYTHON}" --version
 
 
                     echo ""
-
                     echo "OdooLint executable:"
 
                     echo "${ODOOLINT}"
 
 
                     echo ""
+                    echo "OdooLint version/help:"
 
-                    echo "OdooLint:"
-
-                    ${ODOOLINT} --help
+                    "${ODOOLINT}" --help
 
 
                     echo ""
-
                     echo "Current Git commit:"
 
                     git rev-parse HEAD
 
 
                     echo ""
-
                     echo "Running OdooLint..."
 
                     echo "------------------------------------------"
 
 
-                    ${ODOOLINT} --head "${GIT_COMMIT}"
+                    "${ODOOLINT}" --head "${GIT_COMMIT}"
 
 
                     echo ""
@@ -473,7 +471,6 @@ pipeline {
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
-
                 }
             }
 
@@ -483,9 +480,7 @@ pipeline {
                 script {
 
                     echo "=========================================="
-
                     echo "DEPLOYING CUSTOM ADDONS"
-
                     echo "=========================================="
 
 
@@ -607,7 +602,6 @@ pipeline {
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
-
                 }
             }
 
@@ -615,9 +609,7 @@ pipeline {
             steps {
 
                 echo "=========================================="
-
                 echo "STOPPING ODOO"
-
                 echo "=========================================="
 
 
@@ -666,7 +658,6 @@ pipeline {
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
-
                 }
             }
 
@@ -674,9 +665,7 @@ pipeline {
             steps {
 
                 echo "=========================================="
-
                 echo "UPGRADING ODOO MODULES"
-
                 echo "=========================================="
 
 
@@ -686,7 +675,7 @@ pipeline {
 
                     echo "Python:"
 
-                    ${PYTHON} --version
+                    "${PYTHON}" --version
 
 
                     echo ""
@@ -766,7 +755,6 @@ pipeline {
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
-
                 }
             }
 
@@ -774,9 +762,7 @@ pipeline {
             steps {
 
                 echo "=========================================="
-
                 echo "STARTING ODOO"
-
                 echo "=========================================="
 
 
@@ -858,7 +844,6 @@ pipeline {
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
-
                 }
             }
 
@@ -866,9 +851,7 @@ pipeline {
             steps {
 
                 echo "=========================================="
-
                 echo "ODOO SERVER CHECK"
-
                 echo "=========================================="
 
 
@@ -955,7 +938,6 @@ pipeline {
                 expression {
 
                     return env.CHANGED_MODULES?.trim()
-
                 }
             }
 
@@ -963,9 +945,7 @@ pipeline {
             steps {
 
                 echo "=========================================="
-
                 echo "ODOO HEALTH CHECK"
-
                 echo "=========================================="
 
 
@@ -1031,6 +1011,12 @@ pipeline {
 
     post {
 
+        /*
+         * ------------------------------------------
+         * ALWAYS
+         * ------------------------------------------
+         */
+
         always {
 
             echo "=========================================="
@@ -1040,6 +1026,12 @@ pipeline {
             echo "=========================================="
         }
 
+
+        /*
+         * ------------------------------------------
+         * SUCCESS
+         * ------------------------------------------
+         */
 
         success {
 
@@ -1061,64 +1053,76 @@ pipeline {
                 recipientProviders: [developers()],
                 subject: "[Jenkins] SUCCESS - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                 mimeType: 'text/html',
+
                 body: '''
 <html>
 <body>
 
 <p>Hello,</p>
 
-<p>The Jenkins pipeline has completed successfully.</p>
+<p>
+The Jenkins pipeline has completed successfully.
+</p>
 
-<table>
+
+<table border="1" cellpadding="5" cellspacing="0">
+
 <tr>
-    <td><b>Build Status:</b></td>
+    <td><b>Build Status</b></td>
     <td>SUCCESS</td>
 </tr>
 
 <tr>
-    <td><b>Job:</b></td>
+    <td><b>Job</b></td>
     <td>$JOB_NAME</td>
 </tr>
 
 <tr>
-    <td><b>Build Number:</b></td>
+    <td><b>Build Number</b></td>
     <td>#$BUILD_NUMBER</td>
 </tr>
 
 <tr>
-    <td><b>Branch:</b></td>
+    <td><b>Branch</b></td>
     <td>$BRANCH_NAME</td>
 </tr>
 
 <tr>
-    <td><b>Commit:</b></td>
+    <td><b>Commit</b></td>
     <td>$GIT_COMMIT</td>
 </tr>
 
 <tr>
-    <td><b>Changed Modules:</b></td>
+    <td><b>Changed Modules</b></td>
     <td>$CHANGED_MODULES</td>
 </tr>
+
 </table>
+
 
 <p>
 The Odoo custom addons were deployed and the Odoo server
 health check completed successfully.
 </p>
 
+
 <p>
 <b>GitHub Commit:</b><br>
+
 <a href="$GITHUB_COMMIT_URL">
 Open commit on GitHub
 </a>
 </p>
 
+
 <p>
 <b>Jenkins Build:</b><br>
+
 <a href="$BUILD_URL">
 Open Jenkins build
 </a>
 </p>
+
 
 <p>
 Regards,<br>
@@ -1128,6 +1132,7 @@ Jenkins CI/CD
 </body>
 </html>
 ''',
+
                 attachLog: false
             )
 
@@ -1137,6 +1142,12 @@ Jenkins CI/CD
             echo "=========================================="
         }
 
+
+        /*
+         * ------------------------------------------
+         * FAILURE
+         * ------------------------------------------
+         */
 
         failure {
 
@@ -1162,6 +1173,7 @@ Jenkins CI/CD
                 recipientProviders: [developers()],
                 subject: "[Jenkins] FAILED - ${env.JOB_NAME} #${env.BUILD_NUMBER}",
                 mimeType: 'text/html',
+
                 body: '''
 <html>
 <body>
@@ -1172,41 +1184,44 @@ Jenkins CI/CD
 The Jenkins pipeline has <b>failed</b>.
 </p>
 
-<table>
+
+<table border="1" cellpadding="5" cellspacing="0">
 
 <tr>
-    <td><b>Build Status:</b></td>
+    <td><b>Build Status</b></td>
     <td>FAILED</td>
 </tr>
 
 <tr>
-    <td><b>Job:</b></td>
+    <td><b>Job</b></td>
     <td>$JOB_NAME</td>
 </tr>
 
 <tr>
-    <td><b>Build Number:</b></td>
+    <td><b>Build Number</b></td>
     <td>#$BUILD_NUMBER</td>
 </tr>
 
 <tr>
-    <td><b>Branch:</b></td>
+    <td><b>Branch</b></td>
     <td>$BRANCH_NAME</td>
 </tr>
 
 <tr>
-    <td><b>Commit:</b></td>
+    <td><b>Commit</b></td>
     <td>$GIT_COMMIT</td>
 </tr>
 
 <tr>
-    <td><b>Changed Modules:</b></td>
+    <td><b>Changed Modules</b></td>
     <td>$CHANGED_MODULES</td>
 </tr>
 
 </table>
 
+
 <p>
+
 <b>Failure details:</b><br>
 
 The pipeline stopped because one of the CI/CD stages
@@ -1214,38 +1229,53 @@ returned an error.
 
 Please check the Jenkins console output for the exact
 failure stage and error message.
+
 </p>
 
+
 <p>
+
 <b>GitHub Commit:</b><br>
 
 <a href="$GITHUB_COMMIT_URL">
 Open commit on GitHub
 </a>
+
 </p>
 
+
 <p>
+
 <b>Jenkins Build:</b><br>
 
 <a href="$BUILD_URL">
 Open Jenkins build and console output
 </a>
+
 </p>
 
+
 <p>
+
 <b>Odoo log file:</b><br>
 
 $ODOO_LOG
+
 </p>
 
+
 <p>
+
 Regards,<br>
+
 Jenkins CI/CD
+
 </p>
 
 </body>
 </html>
 ''',
+
                 attachLog: true
             )
 
