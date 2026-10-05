@@ -290,7 +290,7 @@ stages {
         }
     }
     
-    stage('Pylint-Odoo Check') {
+stage('Pylint-Odoo Check') {
     when {
         expression {
             return env.CHANGED_MODULES?.trim()
@@ -307,8 +307,9 @@ stages {
                 echo "Running pylint-odoo for module: ${module}"
 
                 sh """
-                    ${PYTHON} -m pylint \\
-                        --load-plugins=pylint_odoo \\
+                    ${PYTHON} -m pylint \
+                        --load-plugins=pylint_odoo \
+                        --fail-under=3.0 \
                         "${SOURCE_DIR}/${module}"
                 """
             }
