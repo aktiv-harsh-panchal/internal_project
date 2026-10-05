@@ -290,6 +290,32 @@ stages {
         }
     }
     
+    stage('Pylint-Odoo Check') {
+    when {
+        expression {
+            return env.CHANGED_MODULES?.trim()
+        }
+    }
+
+    steps {
+        script {
+            echo "Running pylint-odoo on changed modules: ${CHANGED_MODULES}"
+
+            def modules = CHANGED_MODULES.split()
+
+            for (module in modules) {
+                echo "Running pylint-odoo for module: ${module}"
+
+                sh """
+                    ${PYTHON} -m pylint \\
+                        --load-plugins=pylint_odoo \\
+                        "${SOURCE_DIR}/${module}"
+                """
+            }
+        }
+    }
+}
+    
     /*
  * ==========================================
  * FLAKE8
@@ -337,7 +363,7 @@ stage('Flake8 Check') {
 
 	            ${PYTHON} -m flake8 \
 	                ${module}
-
+	
 	        done
 
 	        echo ""
