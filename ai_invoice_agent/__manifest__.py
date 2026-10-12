@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 {
     "name": "AI Invoice Agent",
-    "version": "19.0.1.1.25",
+    "version": "19.0.1.1.27",
     "category": "Accounting",
     "summary": "AI powered overdue invoice reminder automation",
     "depends": ["account", "mail"],
     "external_dependencies": {
-        "python": ["requests"],
+        "python": ["bs4"],
     },
     "images": ["static/description/icon.png"],
     "data": [
