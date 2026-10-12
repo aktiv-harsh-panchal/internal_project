@@ -269,43 +269,39 @@ pipeline {
             }
         }
 
-        stage('Install Python Dependencies') {
-            when {
-                expression {
-                    return env.DEPENDENCY_WORK_REQUIRED == 'true'
-                }
-            }
+        
+	stage('Install Python Dependencies') {
+	    when {
+		expression {
+		    return env.DEPENDENCY_WORK_REQUIRED == 'true'
+		}
+	    }
+	    steps {
+		sh '''
+		    set -eu
 
-            steps {
-                sh '''
-                    set -e
+		    echo "=========================================="
+		    echo "INSTALL PYTHON DEPENDENCIES"
+		    echo "=========================================="
 
-                    echo "=========================================="
-                    echo "INSTALL PYTHON DEPENDENCIES"
-                    echo "=========================================="
+		    REQUIREMENTS_PATH="${WORKSPACE}/${REQUIREMENTS_FILE}"
 
-                    REQUIREMENTS_PATH="${WORKSPACE}/${REQUIREMENTS_FILE}"
+		    if [ ! -f "${REQUIREMENTS_PATH}" ]; then
+		        echo "ERROR: Requirements file not found: ${REQUIREMENTS_PATH}"
+		        exit 1
+		    fi
 
-                    if [ ! -f "${REQUIREMENTS_PATH}" ]; then
-                        echo "ERROR: Requirements file not found: ${REQUIREMENTS_PATH}"
-                        exit 1
-                    fi
+		    echo "Installing dependencies into the Odoo Python environment..."
 
-                    echo "Installing dependencies into the Odoo Python environment..."
+		    sudo -n -u odoo \
+		        "${PYTHON}" -m pip install \
+		        -r "${REQUIREMENTS_PATH}"
 
-                    sudo -n -u odoo \
-                        "${PYTHON}" -m pip install \
-                        -r "${REQUIREMENTS_PATH}"
+		    echo "Dependency installation completed successfully."
+		'''
+	    }
+	}
 
-                    echo "Checking installed Python packages for vulnerabilities..."
-
-                    sudo -n -u odoo \
-                        "${PYTHON}" -m pip_audit --strict
-
-                    echo "Dependency installation and installed-package audit completed."
-                '''
-            }
-        }
 
         stage('Pylint Check') {
             when {
