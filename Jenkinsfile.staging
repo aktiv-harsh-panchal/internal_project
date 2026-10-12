@@ -123,7 +123,15 @@ pipeline {
                     echo "Current commit: ${currentCommit}"
 
                     def changedFiles = sh(
-                        script: "git diff --name-only ${previousCommit} ${currentCommit}",
+                        script: """
+                            git diff --name-only ${previousCommit} ${currentCommit} |
+                            grep -v '__pycache__/' |
+                            grep -v '\\.pyc$' |
+                            grep -v '^Jenkinsfile$' |
+                            grep -v '^jenkinsfile$' |
+                            grep -v '^\\.gitignore$' |
+                            cat || true
+                        """,
                         returnStdout: true
                     ).trim()
 
@@ -203,6 +211,27 @@ pipeline {
             }
         }
 
+        stage('Pylint-Odoo Check') {
+            when {
+                expression { return env.CHANGED_MODULES?.trim() }
+            }
+            steps {
+                script {
+                    echo "Running pylint-odoo on changed modules: ${env.CHANGED_MODULES}"
+                    def modules = env.CHANGED_MODULES.split()
+                    for (module in modules) {
+                        echo "Running pylint-odoo for module: ${module}"
+                        sh """
+                            ${PYTHON} -m pylint \\
+                                --load-plugins=pylint_odoo \\
+                                --fail-under=3.0 \\
+                                "${SOURCE_DIR}/${module}"
+                        """
+                    }
+                }
+            }
+        }
+
         stage('Flake8 Check') {
             when {
                 expression {
@@ -252,38 +281,31 @@ pipeline {
             when {
                 expression { return env.CHANGED_MODULES?.trim() }
             }
-
             steps {
                 sh '''
                     set -e
-
                     echo "Jenkins workspace:"
                     pwd
-
                     echo "Target directory: ${SOURCE_DIR}"
-
-                    if [ ! -d "${SOURCE_DIR}" ]; then
-                        echo "ERROR: Source directory does not exist."
-                        exit 1
-                    fi
-
+                    test -d "${SOURCE_DIR}"
                     echo "Modules to deploy: ${CHANGED_MODULES}"
 
                     for module in ${CHANGED_MODULES}
                     do
                         echo "Deploying module: ${module}"
-
                         if [ ! -d "${module}" ]; then
                             echo "ERROR: Module ${module} does not exist in Jenkins workspace."
                             exit 1
                         fi
-
-                        sudo -n rm -rf "${SOURCE_DIR}/${module}"
-                        sudo -n cp -a "${module}" "${SOURCE_DIR}/"
+                        sudo -n -u odoo rsync -a \
+                            --delete \
+                            --no-owner \
+                            --no-group \
+                            "${module}/" \
+                            "${SOURCE_DIR}/${module}/"
+                        sudo -n chown -R odoo:odoo "${SOURCE_DIR}/${module}"
+                        echo "Module deployed: ${module}"
                     done
-
-                    sudo -n chown -R odoo:odoo "${SOURCE_DIR}"
-
                     echo "Custom addons deployed successfully."
                 '''
             }
@@ -293,34 +315,18 @@ pipeline {
             when {
                 expression { return env.CHANGED_MODULES?.trim() }
             }
-
             steps {
                 sh '''
                     set -e
-
-                    echo "Checking port ${ODOO_PORT}..."
-
-                    if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                        echo "Stopping Odoo..."
-                        sudo -n fuser -k ${ODOO_PORT}/tcp || true
-
-                        for i in $(seq 1 30)
-                        do
-                            if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
-                                echo "Port released successfully."
-                                break
-                            fi
-
-                            sleep 1
-                        done
-                    fi
-
-                    if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                        echo "ERROR: Port is still in use."
+                    echo "Stopping Odoo using systemd..."
+                    sudo -n systemctl stop odoo
+                    echo "Checking Odoo service state..."
+                    if sudo -n systemctl is-active --quiet odoo; then
+                        echo "ERROR: Odoo service is still running."
+                        sudo -n systemctl status odoo --no-pager || true
                         exit 1
                     fi
-
-                    echo "Odoo stopped successfully."
+                    echo "Odoo service stopped successfully."
                 '''
             }
         }
@@ -366,112 +372,72 @@ pipeline {
             when {
                 expression { return env.CHANGED_MODULES?.trim() }
             }
-
             steps {
                 sh '''
                     set -e
-
-                    if [ ! -f "${ODOO_BIN}" ]; then
-                        echo "ERROR: Odoo binary not found: ${ODOO_BIN}"
-                        exit 1
-                    fi
-
-                    if [ ! -f "${ODOO_CONFIG}" ]; then
-                        echo "ERROR: Odoo config not found: ${ODOO_CONFIG}"
-                        exit 1
-                    fi
-
-                    EXISTING_PIDS=$(pgrep -u odoo -f "${ODOO_BIN}" || true)
-
-                    if [ -n "${EXISTING_PIDS}" ]; then
-                        echo "Odoo is already running: ${EXISTING_PIDS}"
-                    else
-                        echo "Starting Odoo..."
-
-                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                            echo "ERROR: Port is already in use."
-                            exit 1
-                        fi
-
-                        sudo -n -u odoo sh -c "
-                            nohup '${PYTHON}' '${ODOO_BIN}' \
-                            -c '${ODOO_CONFIG}' \
-                            > '${ODOO_LOG}' 2>&1 \
-                            < /dev/null &
-                        "
-                    fi
-
+                    echo "Starting Odoo using systemd..."
+                    sudo -n systemctl start odoo
+                    echo "Waiting for Odoo service..."
                     for i in $(seq 1 30)
                     do
-                        if pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
-                            echo "Odoo process started."
+                        if sudo -n systemctl is-active --quiet odoo; then
+                            echo "Odoo service is active."
                             break
                         fi
+                        echo "Waiting for Odoo service... (${i}/30)"
                         sleep 1
                     done
-
-                    if ! pgrep -u odoo -f "${ODOO_BIN}" > /dev/null; then
-                        echo "ERROR: Odoo process did not start."
+                    if ! sudo -n systemctl is-active --quiet odoo; then
+                        echo "ERROR: Odoo service failed to start."
+                        sudo -n systemctl status odoo --no-pager || true
+                        echo "Last 100 lines of Odoo log:"
                         tail -100 "${ODOO_LOG}" || true
                         exit 1
                     fi
-
-                    for i in $(seq 1 30)
-                    do
-                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
-                            echo "Odoo port is listening."
-                            break
-                        fi
-                        sleep 1
-                    done
-
-                    if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
-                        echo "ERROR: Odoo port is not listening."
-                        tail -100 "${ODOO_LOG}" || true
-                        exit 1
-                    fi
-
-                    echo "Odoo started successfully."
+                    echo "Odoo service started successfully."
                 '''
             }
         }
 
-	stage('Odoo Server Check') {
-	    steps {
-		sh '''
-		    set -e
-
-		    echo "=========================================="
-		    echo "ODOO SERVER CHECK"
-		    echo "=========================================="
-
-		    echo "Checking Odoo process..."
-
-		    if pgrep -u odoo -f "odoo-bin" > /dev/null; then
-		        echo "Odoo process is running."
-		        pgrep -a -u odoo -f "odoo-bin"
-		    else
-		        echo "ERROR: Odoo process is not running."
-		        exit 1
-		    fi
-
-		    echo ""
-		    echo "Checking Odoo port..."
-
-		    if ss -ltn | grep -q ":${ODOO_PORT} "; then
-		        echo "Odoo port ${ODOO_PORT} is listening."
-		    else
-		        echo "ERROR: Odoo port ${ODOO_PORT} is not listening."
-		        exit 1
-		    fi
-
-		    echo ""
-		    echo "Odoo server is running correctly."
-		'''
-	    }
-	}
+        stage('Odoo Server Check') {
+            when {
+                expression { return env.CHANGED_MODULES?.trim() }
+            }
+            steps {
+                sh '''
+                    set -e
+                    echo "=========================================="
+                    echo "ODOO SERVER CHECK"
+                    echo "=========================================="
+                    echo "Checking Odoo systemd service..."
+                    sudo -n systemctl is-active --quiet odoo
+                    echo "Odoo systemd service is active."
+                    echo "Waiting for Odoo port ${ODOO_PORT}..."
+                    for i in $(seq 1 30)
+                    do
+                        if ss -ltn | grep -q ":${ODOO_PORT} "; then
+                            echo "Odoo port ${ODOO_PORT} is listening."
+                            break
+                        fi
+                        echo "Waiting for Odoo port... (${i}/30)"
+                        sleep 1
+                    done
+                    if ! ss -ltn | grep -q ":${ODOO_PORT} "; then
+                        echo "ERROR: Odoo service is active but port ${ODOO_PORT} is not listening."
+                        sudo -n systemctl status odoo --no-pager || true
+                        echo "Last 100 lines of Odoo log:"
+                        tail -100 "${ODOO_LOG}" || true
+                        exit 1
+                    fi
+                    echo "Odoo server is running correctly."
+                '''
+            }
+        }
 
         stage('Odoo Health Check') {
+            when {
+                expression { return env.CHANGED_MODULES?.trim() }
+            }
             steps {
                 sh '''
                     set -e

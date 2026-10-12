@@ -1,0 +1,31 @@
+services:
+  db:
+    image: postgres:16
+    container_name: internal_project_db
+    environment:
+      POSTGRES_DB: test
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  odoo:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: internal_project_odoo
+    depends_on:
+      - db
+    ports:
+      - "8070:8069"
+      - "8072:8072"
+    volumes:
+      - ./docker/odoo.conf:/etc/odoo/odoo.conf:ro
+      - .:/mnt/custom-addons
+      - odoo_data:/var/lib/odoo
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  odoo_data:
