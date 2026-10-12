@@ -5,6 +5,9 @@
     "category": "Accounting",
     "summary": "AI powered overdue invoice reminder automation",
     "depends": ["account", "mail"],
+    "external_dependencies": {
+        "python": ["requests"],
+    },
     "images": ["static/description/icon.png"],
     "data": [
         "security/ir.model.access.csv",
