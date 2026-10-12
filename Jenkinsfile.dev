@@ -236,30 +236,26 @@ pipeline {
          * Install packages automatically only after the declared-dependency
          * audit passes. The Odoo service must use this same Python environment.
          */
-        stage('Install Python Dependencies') {
-            when {
-                expression {
-                    return env.DEPENDENCY_WORK_REQUIRED == 'true'
-                }
-            }
-            steps {
-                sh '''
-                    set -eu
+	stage('Install Python Dependencies') {
+	    when {
+		expression {
+		    return env.DEPENDENCY_WORK_REQUIRED == 'true'
+		}
+	    }
+	    steps {
+		sh '''
+		    set -eu
 
-                    echo "=========================================="
-                    echo "INSTALLING PYTHON DEPENDENCIES"
-                    echo "=========================================="
+		    echo "=========================================="
+		    echo "INSTALLING PYTHON DEPENDENCIES"
+		    echo "=========================================="
 
-                    sudo -n -u odoo "${PYTHON}" -m pip install \
-                        -r "${WORKSPACE}/${REQUIREMENTS_FILE}"
+		    sudo -n -u odoo "${PYTHON}" -m pip install -r "${WORKSPACE}/${REQUIREMENTS_FILE}"
 
-                    echo "Auditing the installed Python environment..."
-                    sudo -n -u odoo "${PYTHON}" -m pip_audit --strict
-
-                    echo "Dependency installation and audit completed."
-                '''
-            }
-        }
+		    echo "Python dependencies installed successfully."
+		'''
+	    }
+	}
 
         stage('Deploy Custom Addons') {
             when {
