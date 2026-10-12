@@ -123,14 +123,15 @@ pipeline {
                     echo "Current commit: ${currentCommit}"
 
 		    def changedFiles = withEnv([
-	 	        "PREVIOUS_COMMIT=${previousCommit}",
-			"CURRENT_COMMIT=${currentCommit}"
+		        "PREVIOUS_COMMIT=${previousCommit}",
+		        "CURRENT_COMMIT=${currentCommit}"
 		    ]) {
-			sh(
-		 	    script: '''
-				set -o pipefail
+		        sh(
+			    script: '''#!/bin/bash
+			        set -e
+			        set -o pipefail
 
-				git diff --name-only "$PREVIOUS_COMMIT" "$CURRENT_COMMIT" |
+			        git diff --name-only "$PREVIOUS_COMMIT" "$CURRENT_COMMIT" |
 				    grep -v '__pycache__/' |
 				    grep -v '\\.pyc$' |
 				    grep -v '^Jenkinsfile$' |
@@ -140,7 +141,7 @@ pipeline {
 				    grep -v '^\\.gitignore$' || true
 			    ''',
 			    returnStdout: true
-		       ).trim()
+		        ).trim()
 		    }
 
                     echo "Changed files:"
